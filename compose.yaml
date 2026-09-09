@@ -141,11 +141,16 @@ services:
       TEMPORAL_ADDRESS: ${LAB_TEMPORAL_NAMESPACE_ADDRESS:-temporal:7233}
     command:
       - |
-        temporal operator cluster health --address "$${TEMPORAL_ADDRESS}"
-        if ! temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" >/dev/null 2>&1; then
-          temporal operator namespace create --namespace default --retention 3d --address "$${TEMPORAL_ADDRESS}"
-        fi
-        temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" >/dev/null
+        for attempt in 1 2 3 4 5 6; do
+          if temporal operator cluster health --address "$${TEMPORAL_ADDRESS}" --client-connect-timeout 10s --command-timeout 10s &&
+             { temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" --command-timeout 10s >/dev/null 2>&1 ||
+               temporal operator namespace create --namespace default --retention 3d --address "$${TEMPORAL_ADDRESS}" --command-timeout 10s; } &&
+             temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" --command-timeout 10s >/dev/null; then
+            exit 0
+          fi
+          [ "$${attempt}" -eq 6 ] || sleep 5
+        done
+        exit 1
     depends_on:
       temporal:
         condition: service_healthy
