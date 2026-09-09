@@ -2,8 +2,9 @@
 
 - Read `.specify/memory/constitution.md` and the active feature's spec, plan,
   and tasks before changing code. Use the Spec Kit workflow; preserve its artifacts.
-- Feature 001 implementation was approved on 2026-09-08 with the synchronized
-  simplifications in its planning artifacts. Implement only its existing tasks.
+- Feature 001 implementation was approved on 2026-09-08 and reference acceptance
+  completed on 2026-09-09. Do not begin another feature without its own Spec Kit
+  artifacts and explicit approval.
 - Nautobot owns intent; Kafka transports events; Temporal orchestrates durable
   execution. Pydantic v2 validates boundaries; Jinja2 only renders. Isolate device
   access and external integrations from domain models. Never silently change this.

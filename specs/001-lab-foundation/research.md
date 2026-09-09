@@ -104,17 +104,18 @@ server/admin pair and UI match the current upstream sample set. Exact observed
 manifest-list digests are recorded as evidence in `docs/validation.md`; Compose
 does not pin digests. Python uses CPython 3.12.13 and committed `uv.lock`.
 
-## Remaining Verification, Not Open Architecture
+## Verification Outcome, Not Open Architecture
 
 Image-specific commands, schema paths, health tooling and ARM64 manifests were
 verified during implementation; exact tags and evidence are recorded above.
-Implementation acceptance must demonstrate first boot, non-destructive repeated
+Implementation acceptance demonstrated first boot, non-destructive repeated
 initialization, internal/host Kafka access, targeted Celery/Beat checks, UI backend
-access, credential bootstrap without leaks, and real retained-state recovery.
-If unavailable on the current macOS ARM64 machine, report Linux acceptance blocked;
-never substitute mocked success or declare cross-platform support untested.
+access, credential bootstrap without leaks, and real retained-state recovery on
+macOS ARM64 and the Ubuntu x86-64 reference host. Exact results and Linux fixes are
+recorded in `docs/validation.md`.
 
 For optional topology validation, current-release research on 2026-09-08 selected
-an explicitly unverified candidate tuple: networklab 26.8 (Python 3.12 supported),
-containerlab 0.79.0, and Nokia SR Linux 26.7.2-519. Installation and
-`netlab create topology.yml -p clab` remain Linux-host acceptance work.
+networklab 26.08 (Python 3.12 supported), containerlab 0.79.0, and Nokia SR Linux
+26.7.2-519. On 2026-09-09 the reference host installed this tuple, pulled the native
+amd64 image, and successfully ran `netlab create topology.yml -p clab`. This remains
+create-only evidence; no node launch or device operation was validated.

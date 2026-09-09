@@ -41,6 +41,17 @@ Open Nautobot at `http://localhost:8000` with the documented local admin; open
 Temporal UI at `http://localhost:8080` and verify the default namespace is accessible.
 An empty workflow list is expected; it is not an automation-worker health failure.
 
+Keep services bound to VM loopback. From the development Mac, forward them with:
+
+```sh
+ssh \
+  -L 8000:localhost:8000 \
+  -L 8080:localhost:8080 \
+  -L 7233:localhost:7233 \
+  -L 9092:localhost:9092 \
+  root@24.199.95.39
+```
+
 ## Daily Lifecycle
 
 ```sh
@@ -48,7 +59,7 @@ docker compose ps --all
 docker compose logs --tail=100 nautobot-init
 docker compose logs --tail=100 temporal-schema
 docker compose logs --tail=100 kafka
-docker compose down
+docker compose --profile init down
 docker compose up -d --wait --wait-timeout 600
 docker compose --profile init up --no-deps --force-recreate --exit-code-from temporal-namespace temporal-namespace
 uv run network-lab-check
@@ -85,9 +96,9 @@ isolated ports): `LAB_RUN_LIFECYCLE=1 uv run pytest tests/integration/test_lifec
 
 ## Destructive Reset
 
-Only after explicit authorization, `docker compose down --volumes` deletes the
-current project's DBs, events, and media. Redis is disposable regardless and is
-not durable automation state. Rerunning the startup
+Only after explicit authorization, `docker compose --profile init down --volumes`
+deletes the current project's DBs, events, and media. Redis is disposable regardless
+and is not durable automation state. Rerunning the startup
 sequence recreates seed state, not the lost data. This is not a backup/restore tool.
 Destructive reset has been exercised only against disposable lifecycle projects.
 

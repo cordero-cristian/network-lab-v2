@@ -10,10 +10,9 @@ Docker daemon, and obtain the Nokia SR Linux image required by the selected
 containerlab release. An x86 virtual host must expose SSSE3. Budget device memory
 in addition to the 16 GiB supporting-service budget.
 
-Candidate tuple selected from current releases on 2026-09-08: netlab/networklab
-26.8, containerlab 0.79.0, and Nokia SR Linux 26.7.2-519. The repository has not
-executed this tuple; verify it together on the reference Linux host before treating
-it as tested or changing the topology to depend on release-specific behavior.
+Tested create-only tuple on Ubuntu 24.04.4 LTS x86-64 on 2026-09-09:
+netlab/networklab 26.08, containerlab 0.79.0, and Nokia SR Linux 26.7.2-519.
+The SR Linux image supplied a native amd64 manifest and was pulled successfully.
 
 SR Linux multi-architecture images exist from 24.10.1, but upstream describes
 ARM64 as preview. containerlab requires Linux networking primitives. Docker Desktop
@@ -30,5 +29,6 @@ Generated `clab-*`, inventory, and configuration files are ignored. Remove them
 with the version-appropriate netlab cleanup command. `netlab up` and device access
 are deliberately deferred to later features.
 
-The exact netlab/containerlab/SR Linux tuple still requires validation on the
-reference Linux host; see `docs/validation.md`.
+This proves topology transformation and provider artifact generation only. No
+containerlab deployment, node boot, device login, or device validation was run.
+See `docs/validation.md`.

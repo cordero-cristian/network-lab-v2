@@ -16,8 +16,8 @@ Kafka event contract, or Temporal workflow API is introduced.
 | `LAB_RUN_LIFECYCLE=1 uv run pytest tests/integration/test_lifecycle.py` | Explicit opt-in to create/manage/delete only a dedicated disposable project; fail if name/ports overlap ordinary lab |
 | `docker compose ps --all` | Display long-running services and completed/failed one-shots |
 | `docker compose logs --tail=100 <service>` | Service/initialization diagnostics; application code must not log credentials |
-| `docker compose down` | Stop/remove this project's containers/network; retain named volumes |
-| `docker compose down --volumes` | Explicitly destructive reset of this project; never normal startup/recovery default |
+| `docker compose --profile init down` | Stop/remove this project's containers, including the namespace initializer, and network; retain named volumes |
+| `docker compose --profile init down --volumes` | Explicitly destructive reset of this project; never normal startup/recovery default |
 
 Default pytest discovery selects `tests/unit` only. Explicit lifecycle selection
 without `LAB_RUN_LIFECYCLE=1` must fail with opt-in instructions before side effects.

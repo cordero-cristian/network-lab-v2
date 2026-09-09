@@ -1,8 +1,8 @@
 # Feature 001 Validation Evidence
 
-**Date**: 2026-09-08
+**Dates**: 2026-09-08 through 2026-09-09
 
-## Environment
+## Local Implementation Environment
 
 - Host: macOS 26.5.2 ARM64, Darwin 25.5.0
 - Docker Desktop 4.81.0, Engine 29.6.1, Linux ARM64 VM
@@ -14,12 +14,27 @@ An unrelated Kafka container already occupied host port 9092. It was not changed
 the local ignored `.env` uses port 19092 for this validation. The checked-in
 `.env.example` retains the standard 9092 default.
 
+## Reference Linux Environment
+
+- Host: Ubuntu 24.04.4 LTS, kernel 6.8.0-124-generic, x86-64
+- CPU: 2 vCPU, Intel Xeon Platinum 8168 with SSSE3
+- Memory: 15.62 GiB, no swap
+- Disk before image installation: 46 GiB free of 48 GiB
+- Docker Engine 29.1.3; Docker Compose 2.40.3
+- `uv` 0.11.28; managed CPython 3.12.13
+- networklab/netlab 26.08; containerlab 0.79.0
+
+The VM has fewer than the proposed 8 vCPUs but met the 600-second clean-start
+criterion after Linux timing fixes. Running two complete stacks concurrently did
+not meet that bound; lifecycle acceptance therefore ran alone after the clean
+acceptance stack was stopped without deleting its volumes.
+
 ## Exact Image Tags And Registry Evidence
 
 Compose pins patch tags, not digests. `docker buildx imagetools inspect` confirmed
 native `linux/amd64` and `linux/arm64` manifests for every selected tag.
 
-| Image tag | Manifest-list digest observed 2026-09-08 |
+| Image tag | Manifest-list digest observed and pulled as native amd64 on 2026-09-09 |
 |---|---|
 | `networktocode/nautobot:2.4.41-py3.12` | `sha256:f98f84ecd07e97d2f84de92e11f8aa48edd631b209590eb43eb65822ccf0975f` |
 | `postgres:16.15-bookworm` | `sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825` |
@@ -28,6 +43,7 @@ native `linux/amd64` and `linux/arm64` manifests for every selected tag.
 | `temporalio/server:1.31.0` | `sha256:b021b3b58c3f169634cdbb0451fcc0e69e8190b40454323362c7c52bbd4ff7b9` |
 | `temporalio/admin-tools:1.31.0` | `sha256:3e68adcd54195a7c1222e99f2dbc32a4fdbf44ad69e3bb48e21e85c4bf417c2e` |
 | `temporalio/ui:2.49.1` | `sha256:a066bdf5c4de689cabaf80cc357871f1db5e6d750a6bcfc42e877b913e31ef24` |
+| `ghcr.io/nokia/srlinux:26.7.2-519` | `sha256:0096fe3ebcafabb7253492e2060425fe027a168e0e066766d1e85efbb0b48be8` |
 
 Digests are evidence only and may change if publishers rebuild tags. Compose uses
 the exact patch tags above. `uv.lock` records exact Python distributions.
@@ -85,14 +101,68 @@ Nautobot web 449.6 MiB, Beat 212 MiB, PostgreSQL 99.18 MiB, Temporal 68.44 MiB,
 Temporal UI 18.18 MiB, and Redis 9.44 MiB. Instantaneous CPU was bursty during
 concurrent validation, so this is evidence from one sample, not a capacity bound.
 
-## Remaining Checks
+The reference Linux steady-state snapshot used approximately 2.12 GiB container
+memory: Kafka 939.8 MiB, Nautobot web 396.7 MiB, worker 350.9 MiB, Beat 210 MiB,
+PostgreSQL 127.3 MiB, Temporal 85.95 MiB, UI 10.07 MiB, and Redis 3.19 MiB.
+Kafka showed a transient 57% CPU sample while other services were mostly idle;
+this is an observation, not a capacity benchmark.
 
-- Ubuntu 24.04 LTS x86-64 clean-checkout acceptance, including the reference-host
-  cold-start timing and Docker-stopped unit-only proof: not executable on this host.
-- `netlab create` with the unverified networklab 26.8, containerlab 0.79.0, and
-  SR Linux 26.7.2-519 candidate tuple: not executable on this macOS host and does
-  not affect supporting-service health.
+## Reference Acceptance Commands
 
-Feature 001 is therefore implemented and validated for supporting-service use on
-this macOS ARM64 host, but it is not accepted against the required Linux reference
-platform. T012, T017, T019, T020, and final T021 remain open for that evidence.
+The following commands ran on Ubuntu from the normal checkout or the separately
+cloned `/root/network-lab-v2-acceptance` checkout as indicated:
+
+| Command / check | Linux result |
+|---|---|
+| `uv sync --locked` | Passed from clean checkout; 25 packages installed from the committed lock |
+| `uv run pytest tests/unit` | Passed, 24 tests in 0.44s |
+| `uv run pytest` | Passed, default unit-only collection, 24 tests in 0.44s |
+| `docker compose config --quiet` | Passed with isolated project/endpoint overrides |
+| `docker compose pull` | Passed; all exact tags native amd64 |
+| `docker compose up -d --wait --wait-timeout 600` | Passed from fresh disposable volumes in 452.13s, excluding pulls |
+| `docker compose --profile init up --no-deps --force-recreate --exit-code-from temporal-namespace temporal-namespace` | Passed; bounded retry handled transient CLI interruption, initializer exit 0 |
+| `uv run network-lab-check` | Passed every service, initializer, authenticated HTTP, Kafka, Temporal RPC/namespace, and UI check |
+| `uv run pytest tests/integration/test_services.py` | Passed, 5 tests in 30.20s |
+| `LAB_RUN_LIFECYCLE=1 uv run pytest tests/integration/test_lifecycle.py` | Passed alone on the 2-vCPU host, 1 test in 1227.04s |
+| `netlab create topology.yml -p clab` | Passed; generated one-node containerlab artifacts using SR Linux 26.7.2-519; no node launched |
+
+For the Docker-stopped proof, `docker compose --profile init down` removed all
+normal-project containers and retained its named volumes. `uv sync --locked`,
+`uv run python -c "import network_automation"`, `uv run pytest tests/unit`, and
+default `uv run pytest` passed without infrastructure. Explicit service integration
+then failed 5/5 with missing containers/refused endpoints rather than skipping.
+The normal lab was restored from retained volumes and passed aggregate health.
+
+The clean-checkout run verified `.env` is ignored, `uv.lock` is tracked, image
+references use exact patch tags, and only four application ports were published,
+all on `127.0.0.1`. The disposable acceptance project and volumes were removed;
+normal `network-lab` volumes were never deleted.
+
+## Linux Fixes And Failure Evidence
+
+The first Linux normal-project cold start reached configured health in 566.27s,
+but its immediate Temporal namespace command timed out under startup load. The
+initializer now retries at most six times with 10-second CLI deadlines and 5-second
+delays, retaining visible permanent failure within 120 seconds.
+
+A first clean disposable start exceeded 900 seconds because Nautobot's native
+`health_check` took 12.96 seconds on 2 vCPUs while Compose allowed only 10 seconds.
+Its Compose timeout and interval are now 30 seconds; the final fresh run passed in
+452.13 seconds. An initial concurrent lifecycle run timed out because two full
+stacks exceeded the host CPU allocation. The isolated rerun reached final reset
+but exposed a live Kafka producer recreating its topic after reset. The test now
+creates its topic explicitly, disables producer auto-creation, and releases the
+producer before reset; the full rerun passed.
+
+netlab generation also exposed unignored provider outputs and an implicit SR Linux
+default tag. The topology now pins `26.7.2-519`, and observed generated artifacts
+are ignored. No architectural change or future-feature behavior was required.
+
+## Acceptance Status
+
+All Feature 001 tasks T001 through T021 are complete. Reference Ubuntu x86-64
+acceptance passed on 2026-09-09. Remaining limitations: the VM has only 2 vCPUs,
+so parallel full-stack cold starts are outside the validated resource envelope;
+the topology check proves generation only, not SR Linux node operation; and the
+local credentials and plaintext endpoints remain suitable only for this SSH-tunneled
+lab. Feature 002 has not been created or started.

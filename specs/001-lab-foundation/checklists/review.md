@@ -1,7 +1,7 @@
 # Planning Review: Lab Foundation
 
 **Reviewed**: 2026-09-08
-**Status**: Approved for implementation on 2026-09-08 after required simplifications.
+**Status**: Approved on 2026-09-08; reference acceptance completed on 2026-09-09.
 Checked items below describe document review, NOT completed implementation tasks.
 
 ## Specification Quality
@@ -63,14 +63,12 @@ No further material design issue identified in the final local consistency check
 - No Compose/application files, package implementation, tests, image pulls,
   service startup, network nodes or destructive resets were performed.
 
-## Residual Verification Gates
+## Planning-Time Verification Gates
 
-Exact maintained image patch tags/platforms, release-specific startup/schema and
-health commands, aggregate resource budget, Compose one-shot semantics, and
-optional netlab/containerlab tuple require implementation-time verification.
-All real Linux acceptance remains unrun. Candidate version families are not a
-tested matrix. These are explicit T001/T012/T015/T019/T020 gates, not reasons to
-claim success or silently change the architecture.
+At the planning checkpoint, exact image tags/platforms, release-specific commands,
+resource use, one-shot semantics, lifecycle behavior, and the optional topology
+tuple remained open. Those gates were subsequently completed on macOS ARM64 and
+the Ubuntu x86-64 reference host; evidence is in `docs/validation.md`.
 
 ## Approved Simplifications
 
@@ -85,10 +83,11 @@ claim success or silently change the architecture.
 
 ## Implementation Review
 
-**Reviewed**: 2026-09-08
+**Reviewed**: 2026-09-08; reference acceptance review completed 2026-09-09
 
-- [x] No Kafka consumer, Temporal automation worker/workflow, intent model, Jinja
-  rendering, device access, deployment, or DHCP/ZTP behavior was introduced.
+- [x] No Nautobot-to-Kafka production, Kafka consumer, Temporal automation
+  worker/workflow, intent schema, Jinja rendering, device deployment/validation,
+  DHCP/ZTP, Kubernetes, or cloud provisioning automation was introduced.
 - [x] Compose retains one explicit stack, three durable named volumes, disposable
   Redis, loopback-only application ports, exact patch tags, and small initializers.
 - [x] Pydantic settings validate host boundaries and canonical Nautobot credentials;
@@ -101,10 +100,12 @@ claim success or silently change the architecture.
 - [x] Review findings for canonical credential precedence, internal Kafka round-trip,
   endpoint isolation, bounded probes, stale artifacts, and lifecycle command safety
   were corrected and revalidated.
-- [ ] Ubuntu 24.04 x86-64 clean-checkout acceptance and Docker-stopped developer
-  validation remain unavailable on the current host.
-- [ ] The optional netlab/containerlab/SR Linux create-only check remains unavailable
-  on macOS and must be run on the documented Linux tuple.
+- [x] Ubuntu 24.04.4 x86-64 clean-checkout acceptance and Docker-stopped developer
+  validation passed with actual failures and fixes recorded.
+- [x] networklab 26.08 and containerlab 0.79.0 generated the pinned SR Linux
+  26.7.2-519 topology artifacts; no node launch or device validation was claimed.
+- [x] All 21 tasks are checked only after their required implementation and available
+  platform evidence completed; normal persistent volumes were never reset.
 
-No architectural or future-feature scope violation was found. Feature 001 cannot
-be declared fully accepted until the remaining reference-platform gates complete.
+No architectural or future-feature scope violation was found. Feature 001 is
+accepted on the reference host. Feature 002 has not been created or started.

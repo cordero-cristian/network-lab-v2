@@ -4,8 +4,8 @@
 [data-model.md](data-model.md), [developer contract](contracts/developer-interface.md),
 [quickstart.md](quickstart.md).
 
-**Status**: APPROVED FOR IMPLEMENTATION on 2026-09-08. Check tasks only after
-their implementation and required available verification are complete.
+**Status**: REFERENCE ACCEPTANCE COMPLETED on 2026-09-09. Tasks were checked only
+after their implementation and required available verification completed.
 Tests are required by the constitution/spec, not optional template boilerplate.
 No automatic commits, pushes, issue creation, or persistent-data reset.
 
@@ -31,7 +31,7 @@ on the reference host; no device or automation workflow required.
 - [x] T009 [US1] Add Temporal server/UI/schema/namespace services to `compose.yaml`, `config/temporal/config.yaml`, and small `scripts/init-temporal.sh` / `scripts/init-temporal-namespace.sh` only where native commands need coordination. Gate server on schema success, namespace on RPC health, and UI only on healthy Temporal. Keep namespace initialization explicit/repeatable; aggregate health and acceptance fail visibly when its one-shot fails or `default` is absent. Support repeated setup without data loss and SQL visibility only. Covers FR-002/003/004/006/009.
 - [x] T010 [US1] Add Nautobot web/worker/scheduler/init services to `compose.yaml`, `config/nautobot/nautobot_config.py`, and minimal `scripts/init-nautobot.py`. Use one migration owner, create-if-absent local admin, shared media, skip-init runtime processes, targeted worker health and Beat heartbeat; keep exactly one scheduler. Covers FR-002/003/004/005/006/010.
 - [x] T011 [US1] Implement explicit checks/CLI in `src/network_automation/health.py` and entry point `network-lab-check` in `pyproject.toml`; use Pydantic settings, supported image-native probes through bounded argument-array subprocesses where needed, no registry/framework. Make T005 pass. Covers FR-006/013.
-- [ ] T012 [US1] Run `docker compose config --quiet`, cold start with `docker compose up -d --wait --wait-timeout 600`, explicit `docker compose --profile init up --no-deps --force-recreate --exit-code-from temporal-namespace temporal-namespace`, `uv run network-lab-check`, and `uv run pytest tests/integration/test_services.py` on the reference host. Prove UI starts from healthy Temporal independently while aggregate health still requires a successful namespace one-shot and existing `default` namespace. Fix real compatibility/networking/init/health failures, record command results and cold-start duration in `docs/validation.md`. Covers FR-001/006/007 and SC-001/002.
+- [x] T012 [US1] Run `docker compose config --quiet`, cold start with `docker compose up -d --wait --wait-timeout 600`, explicit `docker compose --profile init up --no-deps --force-recreate --exit-code-from temporal-namespace temporal-namespace`, `uv run network-lab-check`, and `uv run pytest tests/integration/test_services.py` on the reference host. Prove UI starts from healthy Temporal independently while aggregate health still requires a successful namespace one-shot and existing `default` namespace. Fix real compatibility/networking/init/health failures, record command results and cold-start duration in `docs/validation.md`. Covers FR-001/006/007 and SC-001/002.
 
 **Checkpoint**: All required services are actually usable independently. This is
 an MVP checkpoint, not permission to omit remaining Feature 001 acceptance.
@@ -51,14 +51,14 @@ not dependent on optional topology or new automation behavior.
 **Independent test**: Locked install/import/unit tests with Docker stopped; network
 topology validation separately on a suitable Linux host, without node launch.
 
-- [ ] T017 [US3] With Docker stopped, run `uv sync --locked`, `uv run python -c "import network_automation"`, and `uv run pytest tests/unit`; ensure default `uv run pytest` is unit-only and explicit integration selection fails for missing infrastructure. Record evidence and developer commands in `README.md` / `docs/validation.md`. Covers FR-008 and SC-004.
+- [x] T017 [US3] With Docker stopped, run `uv sync --locked`, `uv run python -c "import network_automation"`, and `uv run pytest tests/unit`; ensure default `uv run pytest` is unit-only and explicit integration selection fails for missing infrastructure. Record evidence and developer commands in `README.md` / `docs/validation.md`. Covers FR-008 and SC-004.
 - [x] T018 [P] [US3] Add a minimal single SR Linux node using netlab's containerlab provider in `lab/topology.yml`; document Linux/tools/image/CPU/privilege requirements, tested or unverified version tuple, macOS/ARM64 caveats, and create-only validation in `docs/network-lab.md`. Ignore generated netlab/containerlab artifacts in `.gitignore`. No startup hooks or device configuration. Covers FR-001/011/013.
-- [ ] T019 [US3] Verify `netlab create topology.yml -p clab` from `lab/` on the selected Linux/tool tuple; record what was validated in `docs/validation.md`, without claiming device operation. If unavailable, record the limitation explicitly; do not block supporting-service health on optional node operation. Covers FR-011 and SC-005.
+- [x] T019 [US3] Verify `netlab create topology.yml -p clab` from `lab/` on the selected Linux/tool tuple; record what was validated in `docs/validation.md`, without claiming device operation. If unavailable, record the limitation explicitly; do not block supporting-service health on optional node operation. Covers FR-011 and SC-005.
 
 ## Phase 6: Final Acceptance And Scope Review
 
-- [ ] T020 Follow `specs/001-lab-foundation/quickstart.md` from a separate clean source checkout/copy and fresh disposable project on the reference Linux host; rerun all required unit/service/lifecycle checks, verify only loopback application ports are published, local secrets ignored, all pins/lock present, no undocumented steps, and update `README.md` / `docs/validation.md`. Do not claim acceptance while required Linux checks remain unrun. Covers FR-001/003/009/010/012 and SC-001 through SC-005.
-- [ ] T021 Recheck constitution and absence of future-feature behavior, remove unnecessary wrappers/dependencies, synchronize spec/plan/tasks/agent context and record final evidence in `specs/001-lab-foundation/checklists/review.md`. Mark implementation tasks complete only with their verification evidence; report remaining platform limitations. Covers FR-013 and SC-006.
+- [x] T020 Follow `specs/001-lab-foundation/quickstart.md` from a separate clean source checkout/copy and fresh disposable project on the reference Linux host; rerun all required unit/service/lifecycle checks, verify only loopback application ports are published, local secrets ignored, all pins/lock present, no undocumented steps, and update `README.md` / `docs/validation.md`. Do not claim acceptance while required Linux checks remain unrun. Covers FR-001/003/009/010/012 and SC-001 through SC-005.
+- [x] T021 Recheck constitution and absence of future-feature behavior, remove unnecessary wrappers/dependencies, synchronize spec/plan/tasks/agent context and record final evidence in `specs/001-lab-foundation/checklists/review.md`. Mark implementation tasks complete only with their verification evidence; report remaining platform limitations. Covers FR-013 and SC-006.
 
 ## Dependencies And Parallel Opportunities
 

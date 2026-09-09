@@ -26,10 +26,9 @@ and Docker Compose v2 supporting health dependencies and `up --wait`. Allocate
 approximately 8 vCPU, 16 GiB RAM, and 40 GiB free disk for supporting services.
 Docker access is equivalent to privileged host access.
 
-The supporting stack has also been exercised on macOS ARM64 using Docker Desktop,
-but this is not a substitute for Linux x86-64 acceptance. See
-`docs/validation.md`. Network-device prerequisites are separate in
-`docs/network-lab.md`.
+Reference acceptance passed on Ubuntu 24.04.4 LTS x86-64. The supporting stack
+was also exercised on macOS ARM64 using Docker Desktop. See `docs/validation.md`.
+Network-device prerequisites are separate in `docs/network-lab.md`.
 
 The default loopback ports 8000, 8080, 9092, and 7233 must be free. Override all
 matching `LAB_*_HOST_PORT` and host-side URL/address values in `.env` when needed.
@@ -60,6 +59,22 @@ The namespace initializer is explicit and repeatable. Temporal UI depends only o
 healthy Temporal, while `network-lab-check` requires the initializer to have exited
 zero and the `default` namespace to exist.
 
+For access from a development Mac, keep all application ports on VM loopback and
+use SSH forwarding:
+
+```sh
+ssh \
+  -L 8000:localhost:8000 \
+  -L 8080:localhost:8080 \
+  -L 7233:localhost:7233 \
+  -L 9092:localhost:9092 \
+  root@24.199.95.39
+```
+
+This provides Nautobot at `http://localhost:8000`, Temporal UI at
+`http://localhost:8080`, Temporal gRPC at `localhost:7233`, and Kafka at
+`localhost:9092` on the Mac without publishing those VM services publicly.
+
 ## Develop And Test
 
 ```sh
@@ -89,15 +104,16 @@ their host-port overrides.
 ```sh
 docker compose ps --all
 docker compose logs --tail=100 <service>
-docker compose down
+docker compose --profile init down
 docker compose up -d --wait --wait-timeout 600
 docker compose --profile init up --no-deps --force-recreate --exit-code-from temporal-namespace temporal-namespace
 uv run network-lab-check
 ```
 
-Ordinary `down` retains PostgreSQL, Kafka/KRaft, and Nautobot media. Startup
-re-runs supported schema/migration initialization without rotating the Kafka
-cluster identity or changing an existing Nautobot admin password/token.
+Ordinary `--profile init down` also removes the profiled namespace container and
+retains PostgreSQL, Kafka/KRaft, and Nautobot media. Startup re-runs supported
+schema/migration initialization without rotating the Kafka cluster identity or
+changing an existing Nautobot admin password/token.
 
 If startup fails, inspect `postgres`, `temporal-schema`, `nautobot-init`, and the
 named failing service. Correct ports, resources, or configuration and rerun; do
@@ -107,7 +123,7 @@ passwords in `.env` does not alter credentials already stored in PostgreSQL.
 Only when deletion of this lab's data is explicitly intended:
 
 ```sh
-docker compose down --volumes
+docker compose --profile init down --volumes
 ```
 
 This irreversibly deletes this project's databases, Kafka events/metadata, and
@@ -116,10 +132,11 @@ which are disposable already. Never use a global Docker prune for lab recovery.
 
 ## Scope And Specifications
 
-Feature 001 contains no Kafka consumer, Temporal automation workflow/worker,
-network intent model, Jinja rendering, device deployment, or DHCP/ZTP. Planning
-and validation artifacts are under `specs/001-lab-foundation/`; permanent agent
-instructions are in `AGENTS.md`.
+Feature 001 contains no Nautobot event producer, Kafka consumer, Temporal automation
+workflow/worker, network intent model, Jinja rendering, device deployment/validation,
+DHCP/ZTP, Kubernetes, or cloud provisioning automation. Planning and validation
+artifacts are under `specs/001-lab-foundation/`; permanent agent instructions are
+in `AGENTS.md`.
 
 Spec Kit 0.9.5 initialized OpenCode commands in `.opencode/commands/` and Codex
 skills in `.agents/skills/`. The active branch is `001-lab-foundation`.

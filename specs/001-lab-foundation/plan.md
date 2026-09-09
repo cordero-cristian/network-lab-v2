@@ -1,7 +1,7 @@
 # Implementation Plan: Lab Foundation
 
 **Branch**: `001-lab-foundation` | **Date**: 2026-09-08 | **Spec**: [spec.md](spec.md)
-**Status**: Approved for implementation on 2026-09-08 after synchronized simplifications.
+**Status**: Reference acceptance completed on 2026-09-09.
 
 ## Summary
 
@@ -25,8 +25,8 @@ worker runs yet, because there is no approved workflow to execute.
   Docker Desktop supporting-services path is conditional; Linux required for devices.
 - **Project Type**: One Python package and supporting infrastructure, no new API server.
 - **Performance Goals**: Ready within 600 seconds after pulls/sync; probe failures
-  within 120 seconds. macOS measurements are recorded in `docs/validation.md`;
-  reference Linux measurements remain pending.
+  within 120 seconds. macOS and reference Linux measurements are recorded in
+  `docs/validation.md`.
 - **Scale/Scope**: One developer, single Kafka node, single Temporal server, one DB
   server. No HA, production security, device workflows, or throughput benchmark.
 
