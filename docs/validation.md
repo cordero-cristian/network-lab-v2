@@ -1,4 +1,4 @@
-# Feature 001 Validation Evidence
+# Validation Evidence
 
 **Dates**: 2026-09-08 through 2026-09-09
 
@@ -165,4 +165,75 @@ acceptance passed on 2026-09-09. Remaining limitations: the VM has only 2 vCPUs,
 so parallel full-stack cold starts are outside the validated resource envelope;
 the topology check proves generation only, not SR Linux node operation; and the
 local credentials and plaintext endpoints remain suitable only for this SSH-tunneled
-lab. Feature 002 has not been created or started.
+lab.
+
+## Feature 002 Validation Evidence
+
+**Date**: 2026-09-09
+
+Feature 002 adds one host-side Nautobot REST adapter, five frozen Pydantic intent
+models, one presentation-only SR Linux Jinja2 template, deterministic rendering,
+atomic artifact replacement, and the `network-render` CLI. It adds no service,
+worker, device client, Kafka/Temporal application, ZTP behavior, or persistent state.
+
+### Offline Checks
+
+The local Docker stack was stopped. No SSH tunnel or Nautobot endpoint was available
+for these commands.
+
+| Command / check | Result |
+|---|---|
+| `uv sync --locked` | Passed; 28 packages resolved and 27 checked |
+| `uv run python -c "from network_automation.intent.models import DeviceIntent; from network_automation.rendering import render_srlinux"` | Passed |
+| `uv run pytest` | Passed, default unit-only collection, 92 tests in 0.70s |
+| `uv run pytest tests/unit/test_intent_models.py tests/unit/test_nautobot_intent.py tests/unit/test_srlinux_render.py tests/unit/test_render_cli.py` | Passed, 68 Feature 002 tests in 0.46s |
+| `uv run python -m compileall -q src tests` | Passed |
+| `uv build` | Passed; sdist and wheel built, and the wheel contains `network_automation/templates/srlinux/config.j2` plus the `network-render` entry point |
+| `docker compose config --quiet` | Passed |
+| `uv run pytest tests/integration/test_nautobot_render.py` without Nautobot | Failed as required with `httpx.ConnectError: [Errno 61] Connection refused`; 1 failed, no skip |
+
+The offline suite covers exact golden bytes, 100 byte-identical renders, natural
+interface and numeric neighbor ordering, one final newline, package-resource template
+lookup independent of the current directory, strict missing-template data, platform
+dispatch independent of display, malformed external data, numeric address coercion,
+invalid ASNs, loopback ambiguity, duplicate/colliding intent, credential redaction,
+and absent/prior artifact preservation across render, staging, directory, and
+replacement failures.
+
+### Canonical Nautobot Integration
+
+The macOS test process reached canonical Nautobot 2.4.41 over a temporary SSH local
+forward to the VM loopback port. The forward was removed immediately after testing.
+
+| Command / check | Result |
+|---|---|
+| `LAB_NAUTOBOT_URL=http://127.0.0.1:18000 uv run pytest tests/integration/test_nautobot_render.py -vv` | Passed, 1 test in 14.16s |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2 network-lab-check` | Passed all 11 Compose service/initializer states and four application boundaries |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2 pytest tests/integration/test_services.py` | Passed, 5 tests in 29.86s |
+
+The Feature 002 integration generated one suffix and API-created its own Status,
+Namespace, Manufacturer, Platform with `network_driver=nokia_srl`, DeviceType, Role,
+LocationType, Location, two Prefixes, Device `feature002-leaf-<suffix>` with matching
+serial marker, three Interfaces, three IPAddresses, and three assignments. It read
+only immutable ContentType metadata plus its own created objects. Every created ID
+was recorded, deleted in reverse dependency order in `finally`, and confirmed absent
+with a detail GET. It did not reuse, modify, or delete an existing mutable object.
+
+Two preliminary canonical runs failed safely while establishing exact Nautobot 2.4
+behavior. The first returned HTTP 400 before any mutable object was created because
+ContentType relations require `<app_label>.<model>` natural keys rather than UUIDs.
+The second created the full fixture and then exposed Interface `type` as a
+`{value, label}` choice object. Both runs executed ID-only cleanup and confirmed every
+created object absent. The final adapter also follows Role and optional Location URLs
+because Device relation summaries do not carry their display values.
+
+The real integration exercised only Nautobot HTTP plus local model/render/filesystem
+code. It made no network-device, Kafka, or Temporal call. The separate Feature 001
+checks demonstrate that retained volumes and supporting services remained healthy.
+
+### Remaining Acceptance
+
+Tasks T001 through T018 are implemented and evidenced. T019 clean-checkout Ubuntu
+acceptance and dependent final gate T020 remain pending because Feature 002 has not
+been committed or pushed; repository policy requires explicit user authorization
+before those Git operations.

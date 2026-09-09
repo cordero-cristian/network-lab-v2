@@ -20,7 +20,9 @@
   user authorization. Update docs and tests alongside approved implementation.
 
 <!-- SPECKIT START -->
-Active feature: `specs/001-lab-foundation/spec.md`.
-Read `specs/001-lab-foundation/plan.md` and `tasks.md` in that directory for the
-approved structure, decisions, commands, and implementation sequence.
+Active feature: `specs/002-nautobot-srlinux-artifact/spec.md`.
+Read `specs/002-nautobot-srlinux-artifact/plan.md` and `tasks.md` in that directory
+for the approved structure, decisions, commands, and implementation sequence.
+Feature 002 implementation was approved on 2026-09-09 and is in validation. Do not
+begin another feature before Feature 002 acceptance is complete.
 <!-- SPECKIT END -->

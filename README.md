@@ -2,8 +2,10 @@
 
 A production-shaped local foundation for developing a reusable network automation
 framework. Feature 001 supplies supporting services and host-side development
-checks only. Nautobot owns network intent, Kafka transports events, and Temporal
-owns durable workflow execution. No automation workflow is implemented yet.
+checks. Feature 002 reads Nautobot intent and produces deterministic Nokia SR Linux
+configuration artifacts. Nautobot owns network intent, Kafka transports events,
+and Temporal owns durable workflow execution. No workflow or device execution is
+implemented yet.
 
 ## Services
 
@@ -82,6 +84,7 @@ uv sync --locked
 uv run python -c "import network_automation"
 uv run pytest
 uv run pytest tests/integration/test_services.py
+uv run pytest tests/integration/test_nautobot_render.py
 ```
 
 Default pytest discovery runs unit tests only and requires no Docker services.
@@ -98,6 +101,32 @@ This opt-in test removes that disposable project's volumes. It refuses the norma
 `network-lab` project name. Advanced callers may provide a `network-lab-test-*`
 project and endpoint overrides; the test keeps the endpoints synchronized with
 their host-port overrides.
+
+## Render Nautobot Intent
+
+Render one exact Nautobot Device name to the default ignored artifact directory:
+
+```sh
+uv run network-render DEVICE
+```
+
+Use `--output-dir DIRECTORY` to select another output directory. Success atomically
+writes `<DIRECTORY>/<DEVICE>.cfg`, prints that path, and returns zero. Retrieval,
+validation, unsupported platform, rendering, or filesystem failure returns nonzero
+without replacing a prior complete artifact or printing credentials.
+
+The adapter reads the Device, follows its Platform, Role, optional Location, and
+assigned IPAddress relations, and paginates its Interfaces. Platform dispatch uses
+only `network_driver=nokia_srl`; display labels are diagnostic. Exactly one enabled,
+non-management `virtual` `/32` becomes SR Linux `system0`, while addressed physical
+interfaces retain their names. BGP input is currently limited to
+`local_config_context_data.network_automation.bgp`.
+
+Generated configuration contains hostname, loopback and routed interface state and
+IPv4 addressing, default network-instance attachments, and BGP ASN/router-ID/peers.
+It contains no credentials or operational data. Rendering never contacts a network
+device, Kafka, or Temporal. `leaf01` under `tests/fixtures/` is offline golden data,
+not a required Nautobot object.
 
 ## Operations
 
@@ -132,11 +161,12 @@ which are disposable already. Never use a global Docker prune for lab recovery.
 
 ## Scope And Specifications
 
-Feature 001 contains no Nautobot event producer, Kafka consumer, Temporal automation
-workflow/worker, network intent model, Jinja rendering, device deployment/validation,
-DHCP/ZTP, Kubernetes, or cloud provisioning automation. Planning and validation
-artifacts are under `specs/001-lab-foundation/`; permanent agent instructions are
-in `AGENTS.md`.
+Feature 002 adds only typed Nautobot-to-artifact conversion and Jinja presentation.
+The repository still contains no Nautobot event producer, Kafka consumer, Temporal
+automation workflow/worker, device deployment/validation, DHCP/ZTP, Kubernetes, or
+cloud provisioning automation. Feature artifacts are under `specs/`; permanent
+agent instructions are in `AGENTS.md`.
 
 Spec Kit 0.9.5 initialized OpenCode commands in `.opencode/commands/` and Codex
-skills in `.agents/skills/`. The active branch is `001-lab-foundation`.
+skills in `.agents/skills/`. The active branch is
+`002-nautobot-srlinux-artifact`.
