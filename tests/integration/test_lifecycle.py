@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from confluent_kafka import Consumer, Producer
-from confluent_kafka.admin import AdminClient
+from confluent_kafka.admin import AdminClient, NewTopic
 from google.protobuf.duration_pb2 import Duration
 from temporalio.api.workflowservice.v1 import (
     DescribeNamespaceRequest,
@@ -164,9 +164,8 @@ def test_disposable_lifecycle_retains_state_and_reports_dependency_failure(
         start(project)
         start(project)
 
-        metadata = AdminClient(
-            {"bootstrap.servers": settings.kafka_bootstrap_servers}
-        ).list_topics(timeout=settings.probe_timeout_seconds)
+        admin = AdminClient({"bootstrap.servers": settings.kafka_bootstrap_servers})
+        metadata = admin.list_topics(timeout=settings.probe_timeout_seconds)
         assert any(
             broker.port == settings.kafka_host_port for broker in metadata.brokers.values()
         )
@@ -181,9 +180,18 @@ def test_disposable_lifecycle_retains_state_and_reports_dependency_failure(
         response.raise_for_status()
         tag_url = response.json()["url"]
 
-        producer = Producer({"bootstrap.servers": settings.kafka_bootstrap_servers})
+        admin.create_topics(
+            [NewTopic(topic, num_partitions=1, replication_factor=1)]
+        )[topic].result(settings.probe_timeout_seconds)
+        producer = Producer(
+            {
+                "bootstrap.servers": settings.kafka_bootstrap_servers,
+                "allow.auto.create.topics": False,
+            }
+        )
         producer.produce(topic, payload)
         assert producer.flush(settings.probe_timeout_seconds) == 0
+        del producer
         asyncio.run(create_temporal_namespace(settings, namespace))
 
         compose(project, "down", timeout=120)
