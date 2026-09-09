@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "network-automation-lab"
+version = "0.1.0"
+description = "Development tooling for the network automation lab"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "confluent-kafka>=2.11,<3",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "temporalio>=1.18,<2",
+]
+
+[project.scripts]
+network-lab-check = "network_automation.health:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/network_automation"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests/unit"]
+markers = [
+  "integration: requires the running real Compose lab",
+  "lifecycle: creates and removes a dedicated disposable Compose project",
+]
+asyncio_mode = "auto"

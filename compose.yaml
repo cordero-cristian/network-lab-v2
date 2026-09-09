@@ -1,0 +1,246 @@
+name: ${COMPOSE_PROJECT_NAME:-network-lab}
+
+x-nautobot-environment: &nautobot-environment
+  NAUTOBOT_ALLOWED_HOSTS: "localhost 127.0.0.1 nautobot"
+  NAUTOBOT_CELERY_HEALTH_PROBES_AS_FILES: "true"
+  NAUTOBOT_DB_ENGINE: django.db.backends.postgresql
+  NAUTOBOT_DB_HOST: postgres
+  NAUTOBOT_DB_NAME: nautobot
+  NAUTOBOT_DB_PASSWORD: ${NAUTOBOT_DB_PASSWORD:?set NAUTOBOT_DB_PASSWORD in .env}
+  NAUTOBOT_DB_PORT: "5432"
+  NAUTOBOT_DB_USER: nautobot
+  NAUTOBOT_DOCKER_SKIP_INIT: "true"
+  NAUTOBOT_INSTALLATION_METRICS_ENABLED: "false"
+  NAUTOBOT_REDIS_HOST: redis
+  NAUTOBOT_REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+  NAUTOBOT_REDIS_PORT: "6379"
+  NAUTOBOT_SECRET_KEY: ${NAUTOBOT_SECRET_KEY:?set NAUTOBOT_SECRET_KEY in .env}
+  NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
+  NAUTOBOT_SUPERUSER_EMAIL: ${NAUTOBOT_SUPERUSER_EMAIL:-admin@example.com}
+  NAUTOBOT_SUPERUSER_NAME: ${NAUTOBOT_SUPERUSER_NAME:-admin}
+  NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:?set NAUTOBOT_SUPERUSER_PASSWORD in .env}
+
+services:
+  postgres:
+    image: postgres:16.15-bookworm
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in .env}
+      POSTGRES_USER: postgres
+      NAUTOBOT_DB_PASSWORD: ${NAUTOBOT_DB_PASSWORD:?set NAUTOBOT_DB_PASSWORD in .env}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/10-network-lab.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=postgres --dbname=postgres"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2.16-bookworm
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:4.1.2
+    hostname: kafka
+    ports:
+      - "127.0.0.1:${LAB_KAFKA_HOST_PORT:-9092}:9092"
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?set KAFKA_CLUSTER_ID in .env}
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:${LAB_KAFKA_HOST_PORT:-9092},INTERNAL://kafka:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: HOST://:9092,INTERNAL://:29092,CONTROLLER://:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_NODE_ID: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 20
+    restart: unless-stopped
+
+  temporal-schema:
+    image: temporalio/admin-tools:1.31.0
+    entrypoint: ["/bin/sh", "/scripts/init-temporal.sh"]
+    environment:
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+    volumes:
+      - ./scripts/init-temporal.sh:/scripts/init-temporal.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  temporal:
+    image: temporalio/server:1.31.0
+    environment:
+      BIND_ON_IP: 0.0.0.0
+      DB: postgres12
+      DB_PORT: "5432"
+      DBNAME: temporal
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    volumes:
+      - ./config/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    ports:
+      - "127.0.0.1:${LAB_TEMPORAL_HOST_PORT:-7233}:7233"
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:7243/api/v1/namespaces"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 60
+    restart: unless-stopped
+
+  temporal-namespace:
+    image: temporalio/admin-tools:1.31.0
+    profiles: ["init"]
+    entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      TEMPORAL_ADDRESS: ${LAB_TEMPORAL_NAMESPACE_ADDRESS:-temporal:7233}
+    command:
+      - |
+        temporal operator cluster health --address "$${TEMPORAL_ADDRESS}"
+        if ! temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" >/dev/null 2>&1; then
+          temporal operator namespace create --namespace default --retention 3d --address "$${TEMPORAL_ADDRESS}"
+        fi
+        temporal operator namespace describe --namespace default --address "$${TEMPORAL_ADDRESS}" >/dev/null
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: "no"
+
+  temporal-ui:
+    image: temporalio/ui:2.49.1
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${LAB_TEMPORAL_UI_HOST_PORT:-8080}
+    ports:
+      - "127.0.0.1:${LAB_TEMPORAL_UI_HOST_PORT:-8080}:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
+    restart: unless-stopped
+
+  nautobot-init:
+    image: networktocode/nautobot:2.4.41-py3.12
+    user: root
+    environment: *nautobot-environment
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        chown -R nautobot:nautobot /opt/nautobot/media
+        runuser -u nautobot -- nautobot-server post_upgrade
+        install -d -o nautobot -g nautobot /opt/nautobot/media/health_check_storage_test
+        runuser -u nautobot -- nautobot-server shell --interface python < /scripts/init-nautobot.py
+    volumes:
+      - ./scripts/init-nautobot.py:/scripts/init-nautobot.py:ro
+      - nautobot-media:/opt/nautobot/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  nautobot:
+    image: networktocode/nautobot:2.4.41-py3.12
+    environment: *nautobot-environment
+    ports:
+      - "127.0.0.1:${LAB_NAUTOBOT_HOST_PORT:-8000}:8080"
+    volumes:
+      - nautobot-media:/opt/nautobot/media
+    depends_on:
+      nautobot-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "nautobot-server", "health_check"]
+      interval: 10s
+      timeout: 10s
+      start_period: 60s
+      retries: 20
+    restart: unless-stopped
+
+  nautobot-worker:
+    image: networktocode/nautobot:2.4.41-py3.12
+    environment: *nautobot-environment
+    command: ["nautobot-server", "celery", "worker", "--loglevel", "INFO", "--hostname", "celery@nautobot-worker"]
+    volumes:
+      - nautobot-media:/opt/nautobot/media
+    depends_on:
+      nautobot-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/nautobot_celery_worker_ready && find /tmp/nautobot_celery_worker_heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 8
+    restart: unless-stopped
+
+  nautobot-scheduler:
+    image: networktocode/nautobot:2.4.41-py3.12
+    environment: *nautobot-environment
+    command: ["nautobot-server", "celery", "beat", "--loglevel", "INFO", "--pidfile", "/tmp/nautobot-celery-beat.pid"]
+    depends_on:
+      nautobot-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/nautobot_celery_beat_heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 8
+    restart: unless-stopped
+
+volumes:
+  kafka-data:
+  nautobot-media:
+  postgres-data:

@@ -1,0 +1,21 @@
+# Local secrets and agent runtime state; retain checked-in Spec Kit integrations.
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.DS_Store
+lab/clab-*/
+lab/*.cfg
+lab/*.conf
+lab/hosts.yml
+lab/ansible.cfg
+.specify/integrations/.cache/
+.codex/
+.opencode/*
+!.opencode/commands/

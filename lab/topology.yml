@@ -1,0 +1,8 @@
+---
+provider: clab
+
+defaults:
+  device: srlinux
+
+nodes:
+  srl1:

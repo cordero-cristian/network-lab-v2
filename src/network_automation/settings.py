@@ -1,0 +1,86 @@
+"""Validated configuration at the local lab boundary."""
+
+from __future__ import annotations
+
+import re
+
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+HOST_PORT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+:[0-9]{1,5}$")
+COMPOSE_PROJECT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def _validate_host_port(value: str) -> str:
+    value = value.strip()
+    if not HOST_PORT_PATTERN.fullmatch(value):
+        raise ValueError("must use host:port syntax")
+    port = int(value.rsplit(":", 1)[1])
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+    return value
+
+
+class LabSettings(BaseSettings):
+    """Connection settings used by host-side checks and integration tests."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="LAB_",
+        extra="ignore",
+        case_sensitive=False,
+        populate_by_name=True,
+    )
+
+    nautobot_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
+    temporal_address: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_ui_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8080")
+    kafka_host_port: int = Field(default=9092, ge=1, le=65535)
+    kafka_bootstrap_servers: str | None = None
+    nautobot_username: str = Field(
+        default="admin",
+        validation_alias=AliasChoices("NAUTOBOT_SUPERUSER_NAME", "LAB_NAUTOBOT_USERNAME"),
+    )
+    nautobot_password: SecretStr = Field(
+        validation_alias=AliasChoices(
+            "NAUTOBOT_SUPERUSER_PASSWORD", "LAB_NAUTOBOT_PASSWORD"
+        )
+    )
+    nautobot_token: SecretStr = Field(
+        validation_alias=AliasChoices(
+            "NAUTOBOT_SUPERUSER_API_TOKEN", "LAB_NAUTOBOT_TOKEN"
+        )
+    )
+    probe_timeout_seconds: int = Field(default=10, ge=1, le=10)
+    compose_project: str = "network-lab"
+
+    @field_validator("temporal_address")
+    @classmethod
+    def validate_temporal_address(cls, value: str) -> str:
+        return _validate_host_port(value)
+
+    @field_validator("temporal_namespace", "nautobot_username")
+    @classmethod
+    def validate_nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip()
+
+    @field_validator("compose_project")
+    @classmethod
+    def validate_compose_project(cls, value: str) -> str:
+        if not COMPOSE_PROJECT_PATTERN.fullmatch(value):
+            raise ValueError("must be a lowercase Compose project name")
+        return value
+
+    @model_validator(mode="after")
+    def derive_and_validate_kafka_servers(self) -> LabSettings:
+        if self.kafka_bootstrap_servers is None:
+            self.kafka_bootstrap_servers = f"localhost:{self.kafka_host_port}"
+        else:
+            self.kafka_bootstrap_servers = ",".join(
+                _validate_host_port(server)
+                for server in self.kafka_bootstrap_servers.split(",")
+            )
+        return self
