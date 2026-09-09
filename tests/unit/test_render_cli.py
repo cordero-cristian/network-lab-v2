@@ -2,9 +2,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from network_automation.cli import render
+from network_automation.intent.models import InterfaceIntent
 
 
 def test_render_device_runs_complete_orchestration(
@@ -75,4 +76,26 @@ def test_cli_returns_nonzero_without_leaking_secret(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "error: rendering failed (RuntimeError)\n"
+    assert "super-secret" not in captured.err
+
+
+def test_cli_validation_error_identifies_field_without_input_value(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        InterfaceIntent(
+            name="ethernet-1/1",
+            description="peer",
+            ipv4="super-secret-invalid-address",
+        )
+
+    def fail(name: str, output_dir: Path) -> Path:
+        raise error.value
+
+    monkeypatch.setattr(render, "render_device", fail)
+
+    assert render.main(["device"]) == 1
+    captured = capsys.readouterr()
+    assert "ipv4" in captured.err
+    assert "valid IPv4" in captured.err
     assert "super-secret" not in captured.err

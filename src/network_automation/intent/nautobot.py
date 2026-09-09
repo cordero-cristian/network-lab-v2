@@ -107,14 +107,14 @@ class NautobotClient:
                 raise NautobotError("Nautobot interface page has invalid results")
             for item in page_results:
                 interface = dict(_mapping(item, "interface"))
+                if interface.get("enabled") is not True or interface.get("mgmt_only") is not False:
+                    interfaces.append(interface)
+                    continue
                 type_value = interface.get("type")
                 if isinstance(type_value, Mapping):
                     interface["type"] = _required_text(
                         type_value.get("value"), "interface type value"
                     )
-                if interface.get("enabled") is not True or interface.get("mgmt_only") is not False:
-                    interfaces.append(interface)
-                    continue
                 relations = interface.get("ip_addresses", [])
                 if not _is_sequence(relations):
                     raise NautobotError("interface ip_addresses must be a list")

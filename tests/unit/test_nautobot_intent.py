@@ -298,6 +298,7 @@ def test_client_does_not_follow_addresses_for_excluded_interfaces() -> None:
                         {
                             "enabled": False,
                             "mgmt_only": False,
+                            "type": {},
                             "ip_addresses": [
                                 {"url": "http://other.invalid/api/ipam/ip-addresses/forbidden/"}
                             ],

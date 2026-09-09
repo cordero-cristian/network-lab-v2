@@ -35,7 +35,13 @@ def _safe_error(exc: Exception) -> str:
     if isinstance(exc, (NautobotError, UnsupportedPlatformError)):
         return str(exc)
     if isinstance(exc, ValidationError):
-        return "input validation failed"
+        error = exc.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        )[0]
+        location = ".".join(str(component) for component in error["loc"])
+        return f"input validation failed at {location}: {error['msg']}"
     if isinstance(exc, OSError):
         return f"artifact write failed ({type(exc).__name__})"
     return f"rendering failed ({type(exc).__name__})"

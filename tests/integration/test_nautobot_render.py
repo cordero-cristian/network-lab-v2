@@ -53,11 +53,20 @@ class FixtureApi:
     def cleanup(self) -> None:
         failures: list[str] = []
         for endpoint, object_id in reversed(self.created):
-            response = self.client.delete(f"{self.base_url}{endpoint}/{object_id}/")
+            object_url = f"{self.base_url}{endpoint}/{object_id}/"
+            try:
+                response = self.client.delete(object_url)
+            except httpx.HTTPError as exc:
+                failures.append(f"{endpoint}/{object_id}: DELETE {type(exc).__name__}")
+                continue
             if response.status_code not in {204, 404}:
                 failures.append(f"{endpoint}/{object_id}: HTTP {response.status_code}")
                 continue
-            verification = self.client.get(f"{self.base_url}{endpoint}/{object_id}/")
+            try:
+                verification = self.client.get(object_url)
+            except httpx.HTTPError as exc:
+                failures.append(f"{endpoint}/{object_id}: GET {type(exc).__name__}")
+                continue
             if verification.status_code != 404:
                 failures.append(
                     f"{endpoint}/{object_id}: still present (HTTP {verification.status_code})"
