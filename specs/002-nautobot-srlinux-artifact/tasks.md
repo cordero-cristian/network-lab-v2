@@ -95,8 +95,8 @@ and explicit integration fails; after restoring canonical Nautobot, integration 
 
 **Purpose**: Execute the planned walkthrough and reject architectural drift.
 
-- [ ] T019 Follow `specs/002-nautobot-srlinux-artifact/quickstart.md` from a clean checkout on the canonical host; verify golden bytes, 100-repeat determinism, deterministic path, atomic failure safety, real Nautobot data flow, ignored output, and no device access. Update `docs/validation.md`. Covers FR-001-FR-014 and SC-001-SC-005.
-- [ ] T020 Recheck `.specify/memory/constitution.md`, all Feature 002 artifacts, dependencies/imports/source tree, and `git diff` for Nautobot ownership, typed boundary, presentation-only Jinja, one package, and absence of device/Kafka/Temporal/ZTP/custom-App/vendor-framework/future scaffolding. Record final evidence in `specs/002-nautobot-srlinux-artifact/checklists/review.md` and mark tasks complete only with evidence. Covers FR-015 and SC-006.
+- [x] T019 Follow `specs/002-nautobot-srlinux-artifact/quickstart.md` from a clean checkout on the canonical host; verify golden bytes, 100-repeat determinism, deterministic path, atomic failure safety, real Nautobot data flow, ignored output, and no device access. Update `docs/validation.md`. Covers FR-001-FR-014 and SC-001-SC-005.
+- [x] T020 Recheck `.specify/memory/constitution.md`, all Feature 002 artifacts, dependencies/imports/source tree, and `git diff` for Nautobot ownership, typed boundary, presentation-only Jinja, one package, and absence of device/Kafka/Temporal/ZTP/custom-App/vendor-framework/future scaffolding. Record final evidence in `specs/002-nautobot-srlinux-artifact/checklists/review.md` and mark tasks complete only with evidence. Covers FR-015 and SC-006.
 
 ## Dependencies And Execution Order
 

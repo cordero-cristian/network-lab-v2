@@ -23,6 +23,6 @@
 Active feature: `specs/002-nautobot-srlinux-artifact/spec.md`.
 Read `specs/002-nautobot-srlinux-artifact/plan.md` and `tasks.md` in that directory
 for the approved structure, decisions, commands, and implementation sequence.
-Feature 002 implementation was approved on 2026-09-09 and is in validation. Do not
-begin another feature before Feature 002 acceptance is complete.
+Feature 002 implementation and reference acceptance completed on 2026-09-09. Do not
+begin another feature without its own Spec Kit artifacts and explicit approval.
 <!-- SPECKIT END -->

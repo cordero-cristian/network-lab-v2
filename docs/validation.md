@@ -185,8 +185,8 @@ for these commands.
 |---|---|
 | `uv sync --locked` | Passed; 28 packages resolved and 27 checked |
 | `uv run python -c "from network_automation.intent.models import DeviceIntent; from network_automation.rendering import render_srlinux"` | Passed |
-| `uv run pytest` | Passed, default unit-only collection, 92 tests in 0.70s |
-| `uv run pytest tests/unit/test_intent_models.py tests/unit/test_nautobot_intent.py tests/unit/test_srlinux_render.py tests/unit/test_render_cli.py` | Passed, 68 Feature 002 tests in 0.46s |
+| `uv run pytest` | Passed, default unit-only collection, 93 tests in 0.65s |
+| `uv run pytest tests/unit/test_intent_models.py tests/unit/test_nautobot_intent.py tests/unit/test_srlinux_render.py tests/unit/test_render_cli.py` | Passed, 69 Feature 002 tests in 0.43s |
 | `uv run python -m compileall -q src tests` | Passed |
 | `uv build` | Passed; sdist and wheel built, and the wheel contains `network_automation/templates/srlinux/config.j2` plus the `network-render` entry point |
 | `docker compose config --quiet` | Passed |
@@ -231,9 +231,26 @@ The real integration exercised only Nautobot HTTP plus local model/render/filesy
 code. It made no network-device, Kafka, or Temporal call. The separate Feature 001
 checks demonstrate that retained volumes and supporting services remained healthy.
 
-### Remaining Acceptance
+### Clean-Checkout Acceptance
 
-Tasks T001 through T018 are implemented and evidenced. T019 clean-checkout Ubuntu
-acceptance and dependent final gate T020 remain pending because Feature 002 has not
-been committed or pushed; repository policy requires explicit user authorization
-before those Git operations.
+After explicit commit/push authorization, Ubuntu acceptance used the clean
+`/root/network-lab-v2-acceptance` checkout at final implementation commit `0c53c1f`.
+It reused canonical Nautobot over VM loopback without changing or resetting Feature
+001 volumes.
+
+| Command / check | Ubuntu result |
+|---|---|
+| `/root/.local/bin/uv sync --locked --directory /root/network-lab-v2-acceptance` | Passed; Jinja2 3.1.6 and MarkupSafe 3.0.3 installed from the committed lock |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-acceptance pytest` | Passed, 93 tests in 3.13s |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-acceptance pytest tests/unit/test_intent_models.py tests/unit/test_nautobot_intent.py tests/unit/test_srlinux_render.py tests/unit/test_render_cli.py` | Passed, 69 tests in 2.52s |
+| `LAB_NAUTOBOT_URL=http://127.0.0.1:8000 /root/.local/bin/uv run --directory /root/network-lab-v2-acceptance pytest tests/integration/test_nautobot_render.py -vv` | Passed, 1 test in 10.43s; all created IDs confirmed absent |
+| `/root/.local/bin/uv build --directory /root/network-lab-v2-acceptance` | Passed; sdist and wheel built |
+| `git check-ignore -v artifacts/configs/probe.cfg` | Passed with root rule `.gitignore:12:/artifacts/` |
+| `git status --short --branch` | Clean at `0c53c1f`, tracking the pushed Feature 002 branch |
+
+Final review found no Feature 002 import or source change for device access, Kafka,
+Temporal, ZTP, DHCP, Compose, Feature 001 health/settings/tests, or network-lab files.
+The wheel contains the one Python package, one SR Linux template, and both existing
+console entry points. Post-fix code review found no remaining concrete bug or scope
+violation. All Feature 002 tasks T001 through T020 are complete, and reference
+Ubuntu x86-64 acceptance passed on 2026-09-09.
