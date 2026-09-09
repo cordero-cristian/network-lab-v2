@@ -11,10 +11,16 @@ dist/
 build/
 .DS_Store
 lab/clab-*/
+lab/clab.yml
 lab/*.cfg
 lab/*.conf
 lab/hosts.yml
 lab/ansible.cfg
+lab/group_vars/
+lab/host_vars/
+lab/node_files/
+lab/netlab.snapshot.pickle
+lab/netlab-devices.yml
 .specify/integrations/.cache/
 .codex/
 .opencode/*

@@ -3,6 +3,10 @@ provider: clab
 
 defaults:
   device: srlinux
+  devices:
+    srlinux:
+      clab:
+        image: ghcr.io/nokia/srlinux:26.7.2-519
 
 nodes:
   srl1:
