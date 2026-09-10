@@ -1,77 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 import pytest
 
 from network_automation.intent.nautobot import NautobotClient, device_intent_from_nautobot
 from network_automation.rendering.srlinux import render_srlinux, write_srlinux_artifact
 from network_automation.settings import LabSettings
+from tests.integration.support.nautobot_fixture import FixtureApi
 
 pytestmark = pytest.mark.integration
-
-
-class FixtureApi:
-    def __init__(self, settings: LabSettings) -> None:
-        self.base_url = str(settings.nautobot_url).rstrip("/") + "/api/"
-        self.client = httpx.Client(
-            headers={
-                "Authorization": f"Token {settings.nautobot_token.get_secret_value()}",
-                "Accept": "application/json",
-            },
-            timeout=settings.probe_timeout_seconds,
-        )
-        self.created: list[tuple[str, str]] = []
-
-    def close(self) -> None:
-        self.client.close()
-
-    def content_type(self, app_label: str, model: str) -> str:
-        response = self.client.get(
-            f"{self.base_url}extras/content-types/",
-            params={"app_label": app_label, "model": model},
-        )
-        response.raise_for_status()
-        results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["app_label"] == app_label
-        assert results[0]["model"] == model
-        return f"{app_label}.{model}"
-
-    def create(self, endpoint: str, payload: Mapping[str, object]) -> dict[str, object]:
-        response = self.client.post(f"{self.base_url}{endpoint}/", json=payload)
-        response.raise_for_status()
-        created = response.json()
-        object_id = created["id"]
-        assert isinstance(object_id, str)
-        self.created.append((endpoint, object_id))
-        return created
-
-    def cleanup(self) -> None:
-        failures: list[str] = []
-        for endpoint, object_id in reversed(self.created):
-            object_url = f"{self.base_url}{endpoint}/{object_id}/"
-            try:
-                response = self.client.delete(object_url)
-            except httpx.HTTPError as exc:
-                failures.append(f"{endpoint}/{object_id}: DELETE {type(exc).__name__}")
-                continue
-            if response.status_code not in {204, 404}:
-                failures.append(f"{endpoint}/{object_id}: HTTP {response.status_code}")
-                continue
-            try:
-                verification = self.client.get(object_url)
-            except httpx.HTTPError as exc:
-                failures.append(f"{endpoint}/{object_id}: GET {type(exc).__name__}")
-                continue
-            if verification.status_code != 404:
-                failures.append(
-                    f"{endpoint}/{object_id}: still present (HTTP {verification.status_code})"
-                )
-        assert not failures, f"fixture cleanup failures: {failures}"
 
 
 def test_real_nautobot_intent_to_unique_artifact(tmp_path: Path) -> None:

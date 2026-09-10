@@ -20,6 +20,16 @@ x-nautobot-environment: &nautobot-environment
   NAUTOBOT_SUPERUSER_NAME: ${NAUTOBOT_SUPERUSER_NAME:-admin}
   NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:?set NAUTOBOT_SUPERUSER_PASSWORD in .env}
 
+x-automation-environment: &automation-environment
+  LAB_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  LAB_TEMPORAL_ADDRESS: temporal:7233
+  LAB_TEMPORAL_NAMESPACE: default
+  LAB_RENDER_REQUEST_TOPIC: ${LAB_RENDER_REQUEST_TOPIC:-network.render.requested}
+  LAB_RENDER_COMPLETED_TOPIC: ${LAB_RENDER_COMPLETED_TOPIC:-network.render.completed}
+  LAB_RENDER_FAILED_TOPIC: ${LAB_RENDER_FAILED_TOPIC:-network.render.failed}
+  LAB_RENDER_CONSUMER_GROUP: ${LAB_RENDER_CONSUMER_GROUP:-network-automation-render-consumer}
+  LAB_TEMPORAL_TASK_QUEUE: ${LAB_TEMPORAL_TASK_QUEUE:-network-automation}
+
 services:
   postgres:
     image: postgres:16.15-bookworm
@@ -242,6 +252,56 @@ services:
       interval: 15s
       timeout: 5s
       start_period: 45s
+      retries: 8
+    restart: unless-stopped
+
+  automation-worker:
+    image: network-automation-lab:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile.automation
+    profiles: ["automation"]
+    environment:
+      <<: *automation-environment
+      LAB_NAUTOBOT_URL: http://nautobot:8080
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-worker
+      NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
+    command: ["network-worker"]
+    volumes:
+      - ./artifacts:/app/artifacts
+    depends_on:
+      kafka:
+        condition: service_healthy
+      nautobot:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/network-worker.ready && find /tmp/network-worker.heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    restart: unless-stopped
+
+  event-consumer:
+    image: network-automation-lab:0.1.0
+    profiles: ["automation"]
+    environment:
+      <<: *automation-environment
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-consumer
+      NAUTOBOT_SUPERUSER_API_TOKEN: unused-by-consumer
+    command: ["network-event-consumer"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/network-event-consumer.ready && find /tmp/network-event-consumer.heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
       retries: 8
     restart: unless-stopped
 

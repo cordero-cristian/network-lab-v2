@@ -1,6 +1,6 @@
 # Validation Evidence
 
-**Dates**: 2026-09-08 through 2026-09-09
+**Dates**: 2026-09-08 through 2026-09-10
 
 ## Local Implementation Environment
 
@@ -254,3 +254,98 @@ The wheel contains the one Python package, one SR Linux template, and both exist
 console entry points. Post-fix code review found no remaining concrete bug or scope
 violation. All Feature 002 tasks T001 through T020 are complete, and reference
 Ubuntu x86-64 acceptance passed on 2026-09-09.
+
+## Feature 003 Validation Evidence
+
+**Date**: 2026-09-09
+
+Feature 003 adds three strict event models, one manual-commit Kafka consumer, one
+deterministic Temporal workflow, two activities, one worker, one request CLI, and two
+profile-gated Compose services sharing `network-automation-lab:0.1.0`. The lock resolved
+`temporalio==1.32.0`; direct SDK introspection confirmed independent
+`id_conflict_policy` and `id_reuse_policy` start arguments and the exact
+`WorkflowIDConflictPolicy.USE_EXISTING` and `WorkflowIDReusePolicy.REJECT_DUPLICATE`
+members.
+
+### Local Offline And Component Checks
+
+| Command / check | Result |
+|---|---|
+| `uv lock --check` | Passed; 28 packages resolved |
+| Final `uv run pytest` | Passed, 150 default unit tests in 1.96s |
+| Feature 003 focused unit/Temporal tests | Passed; final workflow suite includes a safe unknown/timeout-class fallback result and the consumer suite includes runtime health lifecycle |
+| `uv run python -m compileall -q src tests` | Passed |
+| `uv build` | Passed; sdist and wheel built |
+| `docker compose config --quiet` | Passed |
+| `docker compose --profile automation build automation-worker event-consumer` | Passed; shared ARM64 image ID `sha256:c3afdf356beb6a9a16d528e987b627032f3ab86a102c6b9af91f8672126df8b7` observed before the final standalone-model rebuild |
+| `uv run pytest tests/integration/test_event_components.py -vv` | Passed, 2 real Kafka/Temporal component tests in 1.86s |
+| `uv run pytest tests/integration/test_nautobot_render.py -vv` | Passed, existing Feature 002 real integration in 4.77s |
+| `uv run pytest tests/integration/test_event_driven_render.py -vv` | Passed, strengthened full valid/duplicate/poison/permanent-failure/worker-restart/uncommitted-consumer-restart test in 80.82s |
+| Full integration with `event-consumer` stopped | Failed immediately at the required-service preflight, 1 failed and no skip; service was restored healthy without touching persistent data |
+| `uv run network-lab-check` after acceptance | Passed all 11 supporting container/initializer checks and four application boundaries |
+
+The full path created only uniquely marked Nautobot resources and exact ignored artifact
+paths, then removed and verified those owned resources in `finally`. It published a poison
+record followed by valid duplicated input, observed one retained workflow identity and one
+logical completion, compared event-driven artifact bytes with direct Feature 002 rendering,
+and observed a safe `unsupported_platform` failure. It stopped and restarted only the two
+stateless Feature 003 processes: accepted work completed after worker restart, and an
+uncommitted request started after consumer restart under its deterministic workflow ID.
+No Kafka, Temporal, Nautobot, volume, or persistent namespace was stopped or reset.
+
+The first full-path attempt failed because a result consumer subscribed before Kafka had
+auto-created the failure topic and retained the stale assignment. The test now uses bounded
+metadata refresh with a unique earliest-offset group and correlation filtering; production
+topic creation and process architecture were unchanged. A later first complete attempt
+passed. Shared Kafka/Nautobot outages were deliberately not induced. Bounded transient
+render and result-publication retries are instead proven with Temporal's supported
+time-skipping environment and mocked external failures.
+
+### Reference Ubuntu Acceptance
+
+Reference acceptance used a synchronized, non-Git working copy at
+`/root/network-lab-v2-feature003` because commit and push were not authorized. It reused
+the canonical `network-lab` project, `.env`, named volumes, Kafka log, Temporal namespace,
+and Nautobot database; no volume or persistent state was reset.
+
+| Command / check | Ubuntu result |
+|---|---|
+| `/root/.local/bin/uv sync --locked --directory /root/network-lab-v2-feature003` | Passed; 28 packages resolved and 27 installed with CPython 3.12.13 |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003 pytest` | Passed, 150 unit/Temporal tests in 4.93s |
+| Final synchronized-copy `uv run ... pytest` | Passed, 150 unit/Temporal tests in 2.93s; application-service preflight also passed |
+| compileall and `/root/.local/bin/uv build --directory /root/network-lab-v2-feature003` | Passed; sdist and wheel built |
+| `docker compose ... config --quiet` | Passed |
+| First two-service image build | Failed visibly because Compose 2.40 without buildx concurrently exported two identical build declarations to `network-automation-lab:0.1.0` |
+| Corrected profile build/start | Passed after assigning the sole build declaration to `automation-worker`; `event-consumer` reuses the exact image |
+| `uv run ... pytest tests/integration/test_event_components.py -vv` | Passed, 2 real Kafka/Temporal tests in 3.15s |
+| `uv run ... pytest tests/integration/test_nautobot_render.py -vv` | Passed, Feature 002 real Nautobot test in 18.23s |
+| `uv run ... network-lab-check` | Passed all 11 supporting service/initializer states and four application boundaries |
+| `uv run ... pytest tests/integration/test_services.py -vv` | Passed, 5 Feature 001 real-service tests in 34.34s |
+| `uv run ... pytest tests/integration/test_event_driven_render.py -vv` | Passed full Feature 003 acceptance in 119.72s |
+| Final profile `ps --all` | Both Feature 003 services and all supporting services healthy; all three initializers exited zero |
+| Kafka topic listing | Exactly `network.render.requested`, `network.render.completed`, `network.render.failed`, and Kafka internal `__consumer_offsets` |
+| Application image | `sha256:9015e447fc12b55d5d5795fccc5803b092e936281cd619835fbf441a22c7f27a`, native amd64 |
+
+The corrected Compose project was run from the synchronized project directory under the
+existing project name. Compose therefore recreated PostgreSQL, Temporal schema/server,
+and Nautobot initialization containers while retaining their named volumes. This was an
+acceptance orchestration deviation from the intended stateless-service-only start, not a
+data reset: all supporting services recovered healthy, the namespace remained present,
+the Feature 001 suite passed, and the Feature 002 integration passed. No outage was
+deliberately induced for retry testing.
+
+Canonical logs showed duplicate offsets for the same request event ID mapped to one
+workflow ID, a poison record with topic/partition/offset/event ID/category and no payload
+secret, a safe `unsupported_platform` failure, worker shutdown/recovery, consumer restart,
+and correlated completion publication. The full test verified the poison offset was
+committed, no poison workflow existed, the interrupted exact request record remained
+uncommitted and was processed after restart, direct and event-driven artifact bytes were
+identical, and all test-owned Nautobot objects/artifacts were removed.
+
+### Feature 003 Acceptance Status
+
+All Feature 003 tasks T001 through T038 are complete. Local macOS ARM64 and reference
+Ubuntu 24.04.4 x86-64 acceptance passed on 2026-09-09/10. Remaining limitations are the
+approved absence of a deliberately induced shared Kafka/Nautobot outage and the absence
+of clean Git-checkout evidence until commit/push is separately authorized. No network
+device, deployment, validation, DHCP/ZTP, Feature 004, or generic framework was added.

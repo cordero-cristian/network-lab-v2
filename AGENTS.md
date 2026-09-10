@@ -5,6 +5,8 @@
 - Feature 001 implementation was approved on 2026-09-08 and reference acceptance
   completed on 2026-09-09. Do not begin another feature without its own Spec Kit
   artifacts and explicit approval.
+- Feature 002 implementation and reference acceptance completed on 2026-09-09.
+  Preserve its Nautobot-to-artifact behavior as the rendering path for later work.
 - Nautobot owns intent; Kafka transports events; Temporal orchestrates durable
   execution. Pydantic v2 validates boundaries; Jinja2 only renders. Isolate device
   access and external integrations from domain models. Never silently change this.
@@ -20,9 +22,9 @@
   user authorization. Update docs and tests alongside approved implementation.
 
 <!-- SPECKIT START -->
-Active feature: `specs/002-nautobot-srlinux-artifact/spec.md`.
-Read `specs/002-nautobot-srlinux-artifact/plan.md` and `tasks.md` in that directory
-for the approved structure, decisions, commands, and implementation sequence.
-Feature 002 implementation and reference acceptance completed on 2026-09-09. Do not
-begin another feature without its own Spec Kit artifacts and explicit approval.
+Active feature: `specs/003-event-driven-execution/spec.md`.
+Read `specs/003-event-driven-execution/plan.md` and `tasks.md` after they are generated.
+Feature 003 implementation was approved on 2026-09-09 with separate Temporal running
+conflict and closed reuse policies. Implementation and reference acceptance completed
+on 2026-09-10. Preserve it and do not create or begin Feature 004.
 <!-- SPECKIT END -->

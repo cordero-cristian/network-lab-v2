@@ -19,6 +19,9 @@ dependencies = [
 [project.scripts]
 network-lab-check = "network_automation.health:main"
 network-render = "network_automation.cli.render:main"
+network-render-request = "network_automation.cli.render_request:main"
+network-worker = "network_automation.worker:main"
+network-event-consumer = "network_automation.events.consumer:main"
 
 [dependency-groups]
 dev = [

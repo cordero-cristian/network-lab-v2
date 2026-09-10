@@ -3,9 +3,10 @@
 A production-shaped local foundation for developing a reusable network automation
 framework. Feature 001 supplies supporting services and host-side development
 checks. Feature 002 reads Nautobot intent and produces deterministic Nokia SR Linux
-configuration artifacts. Nautobot owns network intent, Kafka transports events,
-and Temporal owns durable workflow execution. No workflow or device execution is
-implemented yet.
+configuration artifacts. Feature 003 accepts Kafka render requests and uses Temporal
+to durably coordinate that same artifact path. Nautobot owns network intent, Kafka
+transports events, and Temporal owns durable workflow execution. Device access and
+deployment are not implemented.
 
 ## Services
 
@@ -18,6 +19,8 @@ implemented yet.
 | PostgreSQL 16.15 | Compose network only | `postgres-data` |
 | Redis 7.2.16 | Compose network only | None; disposable cache/Celery broker |
 | Nautobot worker and Beat | Compose network only | Application state in PostgreSQL |
+| Automation worker | Compose network only; profile `automation` | Temporal history and generated host artifacts |
+| Event consumer | Compose network only; profile `automation` | Kafka consumer offsets |
 
 Redis is not durable automation state. Temporal owns workflow durability.
 
@@ -128,6 +131,46 @@ It contains no credentials or operational data. Rendering never contacts a netwo
 device, Kafka, or Temporal. `leaf01` under `tests/fixtures/` is offline golden data,
 not a required Nautobot object.
 
+## Event-Driven Rendering
+
+After the default stack and Temporal namespace initializer are healthy, build and start
+the two application processes:
+
+```sh
+docker compose --profile automation build automation-worker event-consumer
+docker compose --profile automation up -d --wait automation-worker event-consumer
+uv run network-render-request DEVICE
+```
+
+The request command waits for Kafka delivery, then prints its event, correlation, and
+deterministic workflow IDs. The consumer validates only `network.render.requested`
+version-1 events and starts `render-device-config:<event_id>`. For a running ID, Temporal's
+conflict policy uses the existing execution; for a retained closed ID, its separate reuse
+policy rejects replacement. Kafka offsets commit synchronously only after Temporal accepts
+or recognizes the workflow. Start or commit uncertainty seeks the exact offset for retry.
+
+The workflow passes only event ID, correlation ID, and device name to one render activity.
+That activity calls the complete Feature 002 path. A second activity publishes either a
+strict `network.render.completed` or `network.render.failed` event. Render attempts are
+limited to three and result publication attempts to five, both with one-second exponential
+backoff capped at ten seconds. Result delivery is at least once; duplicate physical records
+for one outcome retain the same event ID and payload.
+
+Malformed messages are logged with safe topic, partition, offset, parseable event ID, and
+error category context, then committed so the partition can continue. Full raw payloads and
+secrets are not logged by default. Inspect process state with:
+
+```sh
+docker compose --profile automation ps
+docker compose --profile automation logs --tail=100 automation-worker event-consumer
+uv run pytest tests/integration/test_event_components.py
+uv run pytest tests/integration/test_event_driven_render.py
+```
+
+Both services publish no ports and use ready/fresh-heartbeat file health checks. The worker
+alone mounts `./artifacts`; the consumer has no Nautobot, rendering, filesystem, or result-
+publication responsibility.
+
 ## Operations
 
 ```sh
@@ -161,12 +204,11 @@ which are disposable already. Never use a global Docker prune for lab recovery.
 
 ## Scope And Specifications
 
-Feature 002 adds only typed Nautobot-to-artifact conversion and Jinja presentation.
-The repository still contains no Nautobot event producer, Kafka consumer, Temporal
-automation workflow/worker, device deployment/validation, DHCP/ZTP, Kubernetes, or
-cloud provisioning automation. Feature artifacts are under `specs/`; permanent
-agent instructions are in `AGENTS.md`.
+Feature 003 adds only three render events, one Kafka request consumer, one Temporal
+workflow, two activities, one worker, one request CLI, and two profile-gated runtime
+services. It adds no Nautobot event producer, device access/deployment/validation,
+DHCP/ZTP, generic event/workflow framework, API, Kubernetes, or cloud provisioning.
+Feature artifacts are under `specs/`; permanent agent instructions are in `AGENTS.md`.
 
 Spec Kit 0.9.5 initialized OpenCode commands in `.opencode/commands/` and Codex
-skills in `.agents/skills/`. The active branch is
-`002-nautobot-srlinux-artifact`.
+skills in `.agents/skills/`. The active branch is `003-event-driven-execution`.

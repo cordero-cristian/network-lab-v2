@@ -1,0 +1,13 @@
+.git/
+.venv/
+artifacts/
+build/
+coverage/
+dist/
+Dockerfile*
+.dockerignore
+.env*
+*.egg-info/
+*.log*
+**/__pycache__/
+**/*.pyc
