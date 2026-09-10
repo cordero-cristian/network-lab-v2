@@ -346,6 +346,36 @@ identical, and all test-owned Nautobot objects/artifacts were removed.
 
 All Feature 003 tasks T001 through T038 are complete. Local macOS ARM64 and reference
 Ubuntu 24.04.4 x86-64 acceptance passed on 2026-09-09/10. Remaining limitations are the
-approved absence of a deliberately induced shared Kafka/Nautobot outage and the absence
-of clean Git-checkout evidence until commit/push is separately authorized. No network
+approved absence of a deliberately induced shared Kafka/Nautobot outage. No network
 device, deployment, validation, DHCP/ZTP, Feature 004, or generic framework was added.
+
+### Clean-Checkout Closeout
+
+After final closeout authorization on 2026-09-10, implementation commit
+`30d2cd9c510f848c40539d35c1a0965d26a72441` was pushed on branch
+`003-event-driven-execution`. `git ls-remote origin
+refs/heads/003-event-driven-execution` returned that exact SHA before validation.
+
+The private repository could not be cloned directly on the VM: SSH had no authorized
+GitHub key and HTTPS requested credentials. No protected VM SSH material was inspected
+or used. A complete Git bundle containing the exact already-pushed branch was therefore
+verified locally, transferred over the existing operator SSH session, and cloned into
+fresh directory `/root/network-lab-v2-feature003-clean-30d2cd9`. The clone tracked
+`origin/003-event-driven-execution`, its origin URL was set to the requested GitHub
+repository, and `git rev-parse HEAD` returned the full SHA above.
+
+| Clean-checkout command / check | Ubuntu result |
+|---|---|
+| `/root/.local/bin/uv sync --directory /root/network-lab-v2-feature003-clean-30d2cd9 --locked` | Passed; created a fresh `.venv`, resolved 28 packages, and installed 27 packages with CPython 3.12.13 |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003-clean-30d2cd9 pytest` | Passed, 150 default unit/Temporal tests in 6.40s |
+| `docker compose -p network-lab --project-directory /root/network-lab-v2-feature003-clean-30d2cd9 -f /root/network-lab-v2-feature003-clean-30d2cd9/compose.yaml config --quiet` | Passed |
+| `docker compose ... --profile automation build automation-worker` | Passed; built `network-automation-lab:0.1.0` from the pushed commit |
+| `docker compose ... --profile automation up -d --no-deps --wait --wait-timeout 120 automation-worker event-consumer` | Passed; both stateless Feature 003 services reached healthy state without recreating dependencies |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003-clean-30d2cd9 network-lab-check` | Passed before and after integration; all 11 service/initializer states and four application boundaries passed |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003-clean-30d2cd9 pytest -m integration tests/integration/test_event_driven_render.py` | Passed, 1 canonical Feature 003 end-to-end test in 175.89s |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003-clean-30d2cd9 pytest -m integration tests/integration/test_services.py` | Passed, 5 Feature 001 service tests in 24.15s |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature003-clean-30d2cd9 pytest -m integration tests/integration/test_nautobot_render.py` | Passed, 1 Feature 002 real Nautobot test in 12.37s |
+| `git -C /root/network-lab-v2-feature003-clean-30d2cd9 status --short --branch` | Clean at the validated implementation commit, tracking `origin/003-event-driven-execution` |
+
+The destructive lifecycle suite was not rerun because no regression or infrastructure
+issue required it. This clean-checkout run is the final Feature 003 reference acceptance.
