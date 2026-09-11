@@ -4,7 +4,12 @@ from uuid import UUID
 import pytest
 
 from network_automation.cli import render_request
-from network_automation.events.models import RenderRequested, workflow_id_for
+from network_automation.events.models import (
+    DeploymentRequested,
+    RenderRequested,
+    deployment_workflow_id_for,
+    workflow_id_for,
+)
 from network_automation.events.producer import EventPublishError
 
 
@@ -52,6 +57,27 @@ def test_cli_uses_new_identifiers_for_each_request(
     assert len({event.event_id for event in published}) == 2
     assert len({event.correlation_id for event in published}) == 2
     assert all(isinstance(event.event_id, UUID) for event in published)
+
+
+def test_deploy_flag_publishes_deployment_request_and_prints_deployment_workflow_id(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    published: list[object] = []
+    monkeypatch.setattr(
+        render_request, "publish_event", lambda event, *args, **kwargs: published.append(event)
+    )
+
+    assert render_request.main(["--deploy", "f004-leaf01"]) == 0
+
+    event = published.pop()
+    assert isinstance(event, DeploymentRequested)
+    assert event.device_name == "f004-leaf01"
+    assert event.source == "cli"
+    assert capsys.readouterr().out.splitlines() == [
+        f"event_id={event.event_id}",
+        f"correlation_id={event.correlation_id}",
+        f"workflow_id={deployment_workflow_id_for(event.event_id)}",
+    ]
 
 
 def test_cli_returns_nonzero_and_redacts_publication_failure(

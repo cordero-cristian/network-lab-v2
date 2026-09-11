@@ -1,0 +1,12 @@
+services:
+  automation-worker:
+    environment:
+      LAB_DEVICE_USERNAME: ${LAB_DEVICE_USERNAME:-}
+      LAB_DEVICE_PASSWORD: ${LAB_DEVICE_PASSWORD:-}
+    networks:
+      - default
+      - network-lab-devices-mgmt
+
+networks:
+  network-lab-devices-mgmt:
+    external: true

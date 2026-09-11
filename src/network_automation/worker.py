@@ -33,6 +33,12 @@ async def run_worker(
     ready_path: Path = READY_PATH,
     heartbeat_path: Path = HEARTBEAT_PATH,
 ) -> None:
+    from network_automation.activities.deployment import (
+        deploy_device_artifact,
+        prepare_device_deployment,
+        validate_device_state,
+    )
+
     stop_event = stop_event or asyncio.Event()
     client = await Client.connect(
         settings.temporal_address,
@@ -44,7 +50,13 @@ async def run_worker(
             client,
             task_queue=settings.temporal_task_queue,
             workflows=[RenderDeviceConfigWorkflow],
-            activities=[render_device_artifact, publish_render_result],
+            activities=[
+                render_device_artifact,
+                publish_render_result,
+                prepare_device_deployment,
+                deploy_device_artifact,
+                validate_device_state,
+            ],
             activity_executor=executor,
         ):
             ready_path.touch()

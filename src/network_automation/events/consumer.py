@@ -1,4 +1,4 @@
-"""Kafka-to-Temporal bridge for validated render requests."""
+"""Kafka-to-Temporal bridge for validated automation requests."""
 
 from __future__ import annotations
 
@@ -20,8 +20,11 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from network_automation.events.models import (
+    DeploymentRequested,
+    DeployDeviceConfigRequest,
     RenderDeviceConfigRequest,
     RenderRequested,
+    deployment_workflow_id_for,
     workflow_id_for,
 )
 from network_automation.settings import LabSettings
@@ -76,11 +79,35 @@ async def process_message(
     temporal_client: Any,
     settings: LabSettings | None = None,
 ) -> bool:
+    render_topic = settings.render_request_topic if settings else "network.render.requested"
+    deployment_topic = (
+        settings.deployment_request_topic
+        if settings
+        else "network.deployment.requested"
+    )
     try:
-        event = RenderRequested.model_validate_json(message.value())
+        if message.topic() == render_topic:
+            event = RenderRequested.model_validate_json(message.value())
+            request = RenderDeviceConfigRequest(
+                event_id=event.event_id,
+                correlation_id=event.correlation_id,
+                device_name=event.device_name,
+            )
+            workflow_id = workflow_id_for(event.event_id)
+        elif message.topic() == deployment_topic:
+            event = DeploymentRequested.model_validate_json(message.value())
+            request = DeployDeviceConfigRequest(
+                operation="deploy",
+                event_id=event.event_id,
+                correlation_id=event.correlation_id,
+                device_name=event.device_name,
+            )
+            workflow_id = deployment_workflow_id_for(event.event_id)
+        else:
+            raise ValueError("unexpected request topic")
     except (ValidationError, ValueError, TypeError):
         LOGGER.warning(
-            "Rejected poison render request topic=%s partition=%s offset=%s "
+            "Rejected poison automation request topic=%s partition=%s offset=%s "
             "event_id=%s category=validation_error",
             message.topic(),
             message.partition(),
@@ -97,12 +124,6 @@ async def process_message(
         return _commit_or_seek(message, consumer)
 
     task_queue = settings.temporal_task_queue if settings else "network-automation"
-    request = RenderDeviceConfigRequest(
-        event_id=event.event_id,
-        correlation_id=event.correlation_id,
-        device_name=event.device_name,
-    )
-    workflow_id = workflow_id_for(event.event_id)
     try:
         await temporal_client.start_workflow(
             RenderDeviceConfigWorkflow.run,
@@ -142,11 +163,12 @@ async def process_message(
         )
         return False
     LOGGER.info(
-        "Render workflow accepted topic=%s partition=%s offset=%s event_id=%s "
-        "correlation_id=%s workflow_id=%s device_name=%s",
+        "Automation workflow accepted topic=%s partition=%s offset=%s event_type=%s "
+        "event_id=%s correlation_id=%s workflow_id=%s device_name=%s",
         message.topic(),
         message.partition(),
         message.offset(),
+        event.event_type,
         event.event_id,
         event.correlation_id,
         workflow_id,
@@ -155,6 +177,7 @@ async def process_message(
             "topic": message.topic(),
             "partition": message.partition(),
             "offset": message.offset(),
+            "event_type": event.event_type,
             "event_id": str(event.event_id),
             "correlation_id": str(event.correlation_id),
             "workflow_id": workflow_id,
@@ -185,7 +208,9 @@ async def run_consumer(
             "auto.offset.reset": "earliest",
         }
     )
-    consumer.subscribe([settings.render_request_topic])
+    consumer.subscribe(
+        [settings.render_request_topic, settings.deployment_request_topic]
+    )
     ready = False
     next_broker_probe = 0.0
     try:
@@ -205,8 +230,9 @@ async def run_consumer(
                 heartbeat_path.touch()
                 if not ready:
                     LOGGER.info(
-                        "Event consumer ready topic=%s group=%s",
+                        "Event consumer ready topics=%s,%s group=%s",
                         settings.render_request_topic,
+                        settings.deployment_request_topic,
                         settings.render_consumer_group,
                     )
                     ready = True

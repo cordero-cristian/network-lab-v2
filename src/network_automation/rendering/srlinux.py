@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import tempfile
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
@@ -19,6 +21,13 @@ BARE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 class UnsupportedPlatformError(ValueError):
     """The intent does not identify the supported SR Linux platform."""
+
+
+@dataclass(frozen=True)
+class _ArtifactWriteResult:
+    path: Path
+    sha256: str
+    byte_count: int
 
 
 def _natural_key(name: str) -> tuple[tuple[tuple[int, int | str], ...], str, str]:
@@ -75,10 +84,14 @@ def render_srlinux(intent: DeviceIntent) -> str:
         "bgp": {
             "local_asn": intent.bgp.local_asn,
             "router_id": str(intent.loopback.ipv4.ip),
+            "peer_groups": [
+                {"name": f"peer-as-{remote_asn}", "remote_asn": remote_asn}
+                for remote_asn in sorted({neighbor.remote_asn for neighbor in neighbors})
+            ],
             "neighbors": [
                 {
                     "address": str(neighbor.address),
-                    "remote_asn": neighbor.remote_asn,
+                    "peer_group": f"peer-as-{neighbor.remote_asn}",
                     "description": _quoted(neighbor.description),
                 }
                 for neighbor in neighbors
@@ -98,26 +111,38 @@ def write_srlinux_artifact(
 ) -> Path:
     """Render fully, then replace the deterministic target atomically."""
 
+    return _write_srlinux_artifact(intent, output_dir).path
+
+
+def _write_srlinux_artifact(
+    intent: DeviceIntent, output_dir: Path = Path("artifacts/configs")
+) -> _ArtifactWriteResult:
+    """Write an artifact and retain the identity of the exact bytes replaced."""
+
     rendered = render_srlinux(intent)
+    rendered_bytes = rendered.encode("ascii")
+    digest = hashlib.sha256(rendered_bytes).hexdigest()
     target = artifact_path(intent, output_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
+            mode="wb",
             dir=target.parent,
             prefix=f".{target.name}.",
             suffix=".tmp",
             delete=False,
         ) as temporary:
             temporary_path = Path(temporary.name)
-            temporary.write(rendered)
+            temporary.write(rendered_bytes)
             temporary.flush()
         os.replace(temporary_path, target)
         temporary_path = None
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
-    return target
+    return _ArtifactWriteResult(
+        path=target,
+        sha256=digest,
+        byte_count=len(rendered_bytes),
+    )

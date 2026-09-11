@@ -27,6 +27,9 @@ x-automation-environment: &automation-environment
   LAB_RENDER_REQUEST_TOPIC: ${LAB_RENDER_REQUEST_TOPIC:-network.render.requested}
   LAB_RENDER_COMPLETED_TOPIC: ${LAB_RENDER_COMPLETED_TOPIC:-network.render.completed}
   LAB_RENDER_FAILED_TOPIC: ${LAB_RENDER_FAILED_TOPIC:-network.render.failed}
+  LAB_DEPLOYMENT_REQUEST_TOPIC: ${LAB_DEPLOYMENT_REQUEST_TOPIC:-network.deployment.requested}
+  LAB_DEPLOYMENT_COMPLETED_TOPIC: ${LAB_DEPLOYMENT_COMPLETED_TOPIC:-network.deployment.completed}
+  LAB_DEPLOYMENT_FAILED_TOPIC: ${LAB_DEPLOYMENT_FAILED_TOPIC:-network.deployment.failed}
   LAB_RENDER_CONSUMER_GROUP: ${LAB_RENDER_CONSUMER_GROUP:-network-automation-render-consumer}
   LAB_TEMPORAL_TASK_QUEUE: ${LAB_TEMPORAL_TASK_QUEUE:-network-automation}
 
@@ -264,6 +267,11 @@ services:
     environment:
       <<: *automation-environment
       LAB_NAUTOBOT_URL: http://nautobot:8080
+      LAB_DEVICE_USERNAME:
+      LAB_DEVICE_PASSWORD:
+      LAB_DEVICE_GNMI_PORT: ${LAB_DEVICE_GNMI_PORT:-57401}
+      LAB_DEVICE_GNMI_TIMEOUT_SECONDS: ${LAB_DEVICE_GNMI_TIMEOUT_SECONDS:-10}
+      LAB_DEVICE_GNMI_TLS_MODE: ${LAB_DEVICE_GNMI_TLS_MODE:-insecure}
       NAUTOBOT_SUPERUSER_PASSWORD: unused-by-worker
       NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
     command: ["network-worker"]

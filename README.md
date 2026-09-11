@@ -4,9 +4,10 @@ A production-shaped local foundation for developing a reusable network automatio
 framework. Feature 001 supplies supporting services and host-side development
 checks. Feature 002 reads Nautobot intent and produces deterministic Nokia SR Linux
 configuration artifacts. Feature 003 accepts Kafka render requests and uses Temporal
-to durably coordinate that same artifact path. Nautobot owns network intent, Kafka
-transports events, and Temporal owns durable workflow execution. Device access and
-deployment are not implemented.
+to durably coordinate that same artifact path. Feature 004 adds an explicit deployment
+request that applies the digest-bound artifact to a test-owned SR Linux target over gNMI
+and independently validates operational state. Nautobot owns network intent, Kafka
+transports events, and Temporal owns durable workflow execution.
 
 ## Services
 
@@ -30,6 +31,10 @@ Reference acceptance target: Ubuntu 24.04 LTS x86-64, Git, `uv`, Docker Engine,
 and Docker Compose v2 supporting health dependencies and `up --wait`. Allocate
 approximately 8 vCPU, 16 GiB RAM, and 40 GiB free disk for supporting services.
 Docker access is equivalent to privileged host access.
+
+Real-device acceptance additionally requires netlab 26.8.0, containerlab 0.79.0,
+`jq`, SSSE3, and `ghcr.io/nokia/srlinux:26.7.2-519`. The validated canonical host reports
+netlab `26.08`, which is the release's equivalent display form.
 
 Reference acceptance passed on Ubuntu 24.04.4 LTS x86-64. The supporting stack
 was also exercised on macOS ARM64 using Docker Desktop. See `docs/validation.md`.
@@ -88,6 +93,7 @@ uv run python -c "import network_automation"
 uv run pytest
 uv run pytest tests/integration/test_services.py
 uv run pytest tests/integration/test_nautobot_render.py
+uv run pytest tests/integration/test_srlinux_deployment.py
 ```
 
 Default pytest discovery runs unit tests only and requires no Docker services.
@@ -171,6 +177,54 @@ Both services publish no ports and use ready/fresh-heartbeat file health checks.
 alone mounts `./artifacts`; the consumer has no Nautobot, rendering, filesystem, or result-
 publication responsibility.
 
+## Deploy And Validate SR Linux
+
+Use the separate test-owned topology only on the canonical Linux device host. Follow
+`specs/004-srlinux-deployment-validation/quickstart.md` for the complete lifecycle. Run
+netlab from `lab/` so generated files and `netlab down --cleanup` remain isolated from the
+repository's root `config/` directory. The optional Compose override attaches only the
+existing worker to `network-lab-devices-mgmt`; start it with `--no-deps` so shared services
+are not recreated.
+
+Set `LAB_DEVICE_USERNAME` and `LAB_DEVICE_PASSWORD` only in the worker process environment.
+The canonical lab obtains them directly from generated netlab inventory; `.env.example`
+intentionally leaves both blank so render-only startup remains valid. Feature 004 supports
+only local-lab `LAB_DEVICE_GNMI_TLS_MODE=insecure`, port 57401, and a ten-second RPC timeout.
+Do not expose these credentials or endpoints outside the isolated lab.
+
+```sh
+cd lab
+netlab up topology.yml -p clab --no-config
+cd ..
+export LAB_DEVICE_USERNAME="$(jq -r .ansible_user lab/group_vars/srlinux/topology.json)"
+export LAB_DEVICE_PASSWORD="$(jq -r .ansible_ssh_pass lab/group_vars/srlinux/topology.json)"
+docker compose -f compose.yaml -f compose.device-access.yaml --profile automation build automation-worker
+docker compose -f compose.yaml -f compose.device-access.yaml --profile automation up -d --no-deps --wait automation-worker event-consumer
+uv run network-render-request DEVICE --deploy
+uv run pytest tests/integration/test_srlinux_deployment.py
+```
+
+The request uses `network.deployment.requested` and workflow ID
+`deploy-device-config:<event_id>`. Preparation reads Nautobot once, follows the Device's
+authoritative `primary_ip4`, invokes the sole Feature 002 renderer, and binds path, byte
+count, and SHA-256 before deployment. The SR Linux boundary verifies native model and exact
+hostname, rereads the digest, then sends the unchanged ASCII artifact as one CLI-origin
+gNMI `update` transaction. Repeating the same keyed declarations is safe after an uncertain
+response, but this update preserves stale unmentioned configuration and is not rollback.
+
+Success requires separate native reads for hostname; loopback, physical interface, and
+subinterface admin/oper state; exact IPv4 address status; local ASN; peer ASN; and established
+BGP state. Prepare and deploy have three attempts, validation has twelve bounded attempts,
+and publication has five. Validation retries never rerender or redeploy. Outcomes use
+`network.deployment.completed` or `network.deployment.failed` with stable safe categories;
+logs and events exclude credentials, raw configuration, raw responses, and stack traces.
+
+Inspect failures with Temporal UI and safe worker/consumer logs. Confirm the target's
+authoritative Nautobot primary IPv4, hostname bootstrap, worker network attachment, and
+gNMI reachability before retrying. Remove the override worker before topology cleanup, run
+`netlab down --cleanup` from `lab/`, then restore the base worker with `--no-deps`. Never
+delete Compose volumes or shared topics as part of device cleanup.
+
 ## Operations
 
 ```sh
@@ -204,11 +258,12 @@ which are disposable already. Never use a global Docker prune for lab recovery.
 
 ## Scope And Specifications
 
-Feature 003 adds only three render events, one Kafka request consumer, one Temporal
-workflow, two activities, one worker, one request CLI, and two profile-gated runtime
-services. It adds no Nautobot event producer, device access/deployment/validation,
-DHCP/ZTP, generic event/workflow framework, API, Kubernetes, or cloud provisioning.
+Feature 004 extends the same package, consumer, workflow class, worker, publisher, and
+request CLI with three deployment events and three external activities. It adds one concrete
+SR Linux boundary and a separately managed two-node topology. It adds no Nautobot event
+producer, generic device hierarchy, new worker/service/API, rollback, DHCP/ZTP, discovery,
+Kubernetes, cloud orchestration, or production security architecture.
 Feature artifacts are under `specs/`; permanent agent instructions are in `AGENTS.md`.
 
 Spec Kit 0.9.5 initialized OpenCode commands in `.opencode/commands/` and Codex
-skills in `.agents/skills/`. The active branch is `003-event-driven-execution`.
+skills in `.agents/skills/`. The active branch is `004-srlinux-deployment-validation`.

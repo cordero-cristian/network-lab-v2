@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -58,8 +59,16 @@ class LabSettings(BaseSettings):
     render_request_topic: str = "network.render.requested"
     render_completed_topic: str = "network.render.completed"
     render_failed_topic: str = "network.render.failed"
+    deployment_request_topic: str = "network.deployment.requested"
+    deployment_completed_topic: str = "network.deployment.completed"
+    deployment_failed_topic: str = "network.deployment.failed"
     render_consumer_group: str = "network-automation-render-consumer"
     temporal_task_queue: str = "network-automation"
+    device_username: str | None = None
+    device_password: SecretStr | None = None
+    device_gnmi_port: int = Field(default=57401, ge=1, le=65535)
+    device_gnmi_timeout_seconds: int = Field(default=10, ge=1, le=10)
+    device_gnmi_tls_mode: Literal["insecure"] = "insecure"
 
     @field_validator("temporal_address")
     @classmethod
@@ -73,6 +82,22 @@ class LabSettings(BaseSettings):
             raise ValueError("must not be empty")
         return value.strip()
 
+    @field_validator("device_username")
+    @classmethod
+    def validate_optional_nonempty(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip()
+
+    @field_validator("device_password")
+    @classmethod
+    def validate_optional_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not value.get_secret_value():
+            raise ValueError("must not be empty")
+        return value
+
     @field_validator("compose_project")
     @classmethod
     def validate_compose_project(cls, value: str) -> str:
@@ -84,6 +109,9 @@ class LabSettings(BaseSettings):
         "render_request_topic",
         "render_completed_topic",
         "render_failed_topic",
+        "deployment_request_topic",
+        "deployment_completed_topic",
+        "deployment_failed_topic",
         "render_consumer_group",
         "temporal_task_queue",
     )
@@ -107,7 +135,10 @@ class LabSettings(BaseSettings):
             self.render_request_topic,
             self.render_completed_topic,
             self.render_failed_topic,
+            self.deployment_request_topic,
+            self.deployment_completed_topic,
+            self.deployment_failed_topic,
         }
-        if len(topics) != 3:
-            raise ValueError("render event topic names must be distinct")
+        if len(topics) != 6:
+            raise ValueError("all event topic names must be distinct")
         return self

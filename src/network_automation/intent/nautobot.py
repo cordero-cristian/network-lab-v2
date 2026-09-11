@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv4Interface, ip_interface
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -21,6 +23,14 @@ NON_PHYSICAL_TYPES = {"virtual", "lag", "bridge", "other"}
 
 class NautobotError(RuntimeError):
     """A credential-safe Nautobot boundary failure."""
+
+
+@dataclass(frozen=True, slots=True)
+class NautobotDeploymentIntent:
+    """Validated render intent and its authoritative management target."""
+
+    intent: DeviceIntent
+    management_address: IPv4Address
 
 
 class NautobotClient:
@@ -144,6 +154,34 @@ class NautobotClient:
             "interfaces": interfaces,
         }
 
+    def get_deployment_intent(self, name: str) -> NautobotDeploymentIntent:
+        """Read render intent plus the device's authoritative primary IPv4."""
+
+        raw = self.get_device_data(name)
+        device = _mapping(raw.get("device"), "device")
+        relation = _mapping(device.get("primary_ip4"), "device primary_ip4")
+        relation_id = _required_text(relation.get("id"), "primary_ip4 id")
+        relation_url = _required_text(relation.get("url"), "primary_ip4 URL")
+        safe_relation_url = self._safe_url(relation_url)
+        expected_url = self._safe_url(f"api/ipam/ip-addresses/{relation_id}/")
+        if safe_relation_url != expected_url:
+            raise NautobotError("primary_ip4 relation is inconsistent")
+
+        address_data = self._get(safe_relation_url)
+        if _required_text(address_data.get("id"), "primary_ip4 object id") != relation_id:
+            raise NautobotError("primary_ip4 relation is inconsistent")
+        address = _primary_ipv4_interface(address_data.get("address"))
+
+        if "address" in relation:
+            relation_address = _primary_ipv4_interface(relation.get("address"))
+            if relation_address != address:
+                raise NautobotError("primary_ip4 relation is inconsistent")
+
+        return NautobotDeploymentIntent(
+            intent=device_intent_from_nautobot(raw),
+            management_address=address.ip,
+        )
+
 
 def _is_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
@@ -171,6 +209,16 @@ def _required_bool(value: object, label: str) -> bool:
     if not isinstance(value, bool):
         raise NautobotError(f"{label} must be a boolean")
     return value
+
+
+def _primary_ipv4_interface(value: object) -> IPv4Interface:
+    try:
+        parsed = ip_interface(_required_text(value, "primary_ip4 address"))
+    except ValueError as exc:
+        raise NautobotError("primary_ip4 address must be IPv4 interface text") from exc
+    if not isinstance(parsed, IPv4Interface):
+        raise NautobotError("primary_ip4 address must be IPv4 interface text")
+    return parsed
 
 
 def _one_address(interface: Mapping[str, Any]) -> object:

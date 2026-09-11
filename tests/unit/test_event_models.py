@@ -67,6 +67,61 @@ def test_contract_examples_decode_and_encode_exactly() -> None:
         assert event.model_dump_json().encode() == payload
 
 
+def test_all_render_event_payloads_have_only_safe_contract_context() -> None:
+    expected_fields = (
+        {
+            "event_type",
+            "event_version",
+            "event_id",
+            "correlation_id",
+            "device_name",
+            "requested_at",
+            "source",
+        },
+        {
+            "event_type",
+            "event_version",
+            "event_id",
+            "correlation_id",
+            "device_name",
+            "workflow_id",
+            "artifact_path",
+            "completed_at",
+        },
+        {
+            "event_type",
+            "event_version",
+            "event_id",
+            "correlation_id",
+            "device_name",
+            "workflow_id",
+            "error_type",
+            "error_message",
+            "failed_at",
+        },
+    )
+    for model, payload, fields in zip(
+        (RenderRequested, RenderCompleted, RenderFailed),
+        (REQUEST_JSON, COMPLETED_JSON, FAILED_JSON),
+        expected_fields,
+        strict=True,
+    ):
+        event = model.model_validate_json(payload)
+        serialized = event.model_dump_json()
+        assert set(event.model_dump()) == fields
+        for forbidden in (
+            "password",
+            "credential",
+            "management_address",
+            "artifact_content",
+            "raw_response",
+            "traceback",
+            "stack",
+            "set / ",
+        ):
+            assert forbidden not in serialized.lower()
+
+
 def test_event_models_are_frozen_and_reject_unknown_fields() -> None:
     event = RenderRequested.model_validate_json(REQUEST_JSON)
 

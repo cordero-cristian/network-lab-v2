@@ -1,6 +1,6 @@
 # Validation Evidence
 
-**Dates**: 2026-09-08 through 2026-09-10
+**Dates**: 2026-09-08 through 2026-09-11
 
 ## Local Implementation Environment
 
@@ -379,3 +379,130 @@ repository, and `git rev-parse HEAD` returned the full SHA above.
 
 The destructive lifecycle suite was not rerun because no regression or infrastructure
 issue required it. This clean-checkout run is the final Feature 003 reference acceptance.
+
+## Feature 004 Canonical Happy-Path Gate
+
+**Date**: 2026-09-10
+
+Canonical Ubuntu x86-64 preparation used netlab 26.08, containerlab 0.79.0, and the pinned
+SR Linux 26.7.2-519 image. The two-node topology started with fixed management addresses
+after correcting its netlab link mapping, internal management-network key, and host-address
+syntax. Supporting Compose services remained healthy.
+
+The SR Linux username and password were read at runtime only from netlab's generated
+`group_vars/srlinux/topology.json` keys `ansible_user` and `ansible_ssh_pass`. Their values
+were not copied into repository files, command output, application logs, or this evidence.
+Independent pyGNMI connections authenticated to both nodes on port 57401. Capabilities
+advertised the native system model with a namespace-qualified name, requiring local-name
+normalization in the concrete client.
+
+Fresh containerlab default configuration left `/system/name/host-name` absent. The owner
+approved preserving exact pre-write hostname equality and adding one topology-owned
+hostname declaration per node. Recreated nodes applied both one-line partial CLI overlays.
+Initial `datatype=state` probes still reported absence because hostname is a configuration
+leaf; `datatype=all` returned each expected hostname. The first real Set succeeded on both
+nodes, then validation showed admin state, local ASN, and peer ASN are also configuration
+leaves omitted by `state`. The client was corrected to use `all` for configuration
+invariants and `state` for oper state, address status, and BGP session state.
+
+After rebuilding only the existing shared automation image and recreating the two stateless
+automation processes, the full two-node test passed in 52.47 seconds. Kafka requests started
+the existing Temporal workflow, preparation read test-owned Nautobot intent and rendered
+Feature 002 artifacts, gNMI applied the digest-bound bytes after native model and exact
+hostname checks, validation passed, and correlated deployment completion events were
+observed. The integration test then independently read every hostname, loopback,
+physical/subinterface state, exact address status, local/peer ASN, and established session
+leaf from both nodes.
+
+Real worker logs showed prepare, deploy, then validate ordering for each device. The mocked
+concrete-boundary test separately proves Capabilities and hostname Get precede Set in the
+same connection. A value-based audit of worker/consumer logs and eight retained deployment
+records found neither generated-inventory credential nor any artifact command text. The
+credential values existed only in process environment populated directly from generated
+netlab inventory. No value was copied into `.env`, `.env.example`, tests, or validation
+artifacts.
+
+T022-T024 recovery tests passed without production changes: deploy retries reuse preparation,
+validation retries do not redeploy, publication retries do not repeat prior barriers,
+duplicate starts retain exact conflict/reuse and offset semantics, repeated identical Sets
+use the same keyed update, and artifact replacement prevents a second mutation.
+
+The first teardown ran netlab from the repository root and exposed a generated-directory
+collision: `netlab down --cleanup` removed the synchronized checkout's checked-in root
+`config/` tree along with its own generated files. Running services and named volumes were
+not changed, and the missing Temporal dynamic-config file was restored immediately, but a
+future Temporal recreation would have failed. The lifecycle was corrected to run netlab
+from `lab/`, with bootstrap paths relative to that directory and generated `lab/config/`
+ignored. The complete lifecycle and acceptance were then repeated before closeout.
+
+## Feature 004 Final Validation And Closeout
+
+**Date**: 2026-09-11
+
+### Local Offline Regression
+
+The macOS Compose project was stopped without `--volumes`, all offline checks ran with no
+services present, and the retained stack was restored afterward.
+
+| Command / check | Result |
+|---|---|
+| `uv sync --locked` and deployment/workflow imports | Passed; 34 packages resolved and 33 checked |
+| `uv run python -m compileall -q src tests` | Passed |
+| `uv run pytest -q` | Passed, 337 tests in 5.10s |
+| Workflow and accepted-history replay focus | Passed, 12 tests in 3.16s |
+| `uv build` | Passed; sdist and wheel built |
+| `uv pip check` and `uv tree --depth 1` | Passed; all packages compatible and `pygnmi==0.8.15` present |
+| Base and device-override Compose configuration | Passed |
+| Explicit `tests/integration/test_services.py` while Docker-stopped | Failed 5/5 with absent containers/refused endpoints and no skips, as required |
+| Restored `network-lab-check` | Passed all service, initializer, Nautobot, Kafka, Temporal RPC/namespace, and UI checks |
+
+### Canonical Deployment Acceptance
+
+Acceptance used the synchronized non-Git checkout `/root/network-lab-v2-acceptance` on the
+same Ubuntu 24.04.4 x86-64 host and retained Compose project. Credentials were read only at
+runtime from generated `lab/group_vars/srlinux/topology.json`; no credential value was
+printed or persisted. The worker and consumer were rebuilt/recreated with `--no-deps`.
+
+| Command / check | Ubuntu result |
+|---|---|
+| Full seven-case suite after Temporal SDK log containment | Passed, 7 tests in 302.25s |
+| Corrected `lab/` topology start and status | Passed; exactly `f004-spine01` at `172.31.46.11` and `f004-leaf01` at `172.31.46.12`, one link, pinned SR Linux image |
+| Full seven-case suite after corrected lifecycle | Passed, 7 tests in 361.30s |
+| Final seven-case suite with real Temporal lost-result retry | Passed, 7 tests in 318.09s |
+| Final failure-only SDK warning/redaction audit | Passed, 4 tests in 246.73s; Temporal warning records remained visible without stack content |
+| Worker normal-log value/marker audit | Passed; no generated password, traceback, stack trace, `/cli://`, raw response marker, or configuration command text |
+| Worker-first `netlab down --cleanup` from `lab/` | Passed; both device containers and `network-lab-devices-mgmt` absent |
+| Cleanup preservation checks | Passed; named-volume set unchanged and root Temporal dynamic-config file remained present |
+| Base worker restoration | Passed; worker attached only to `network-lab_default`, optional device credentials empty |
+| Final canonical `network-lab-check` | Passed every supporting service, initializer, and application boundary |
+
+The seven cases cover preflight, two-node successful deployment and independent native
+state reads, duplicate delivery, lost successful Set response, validation convergence
+without redeployment, unreachable target, bad credentials, atomic rejection, deterministic
+validation mismatch, exact attempt counts, safe outcome payloads, safe normal logs, and
+test-owned Nautobot/artifact cleanup. Kafka records and Temporal histories remain in their
+unchanged named volumes as durable evidence. The generated username is `admin`, so a naive
+substring scan matches safe `admin_state` check names; the audit therefore used the secret
+value plus explicit forbidden markers, while integration assertions cover every generated
+secret and unsafe payload/history/log value directly.
+
+The final recovery case performs a real successful Set inside an activity, intentionally
+discards that first activity result with a retryable safe error, and observes Temporal run
+the deployment activity exactly twice against the same prepared digest. BGP convergence
+required separate validation retries and did not produce a third deployment attempt.
+
+### Canonical Feature 001-003 Regression
+
+| Command / check | Ubuntu result |
+|---|---|
+| `network-lab-check` | Passed all supporting and application boundaries |
+| `tests/integration/test_services.py -q` | Passed, 5 tests in 27.09s |
+| `tests/integration/test_nautobot_render.py -q` | Passed, 1 test in 12.06s |
+| `tests/integration/test_event_components.py -q` | Passed, 2 tests in 2.41s |
+| `tests/integration/test_event_driven_render.py -q` | Passed, 1 test in 103.26s |
+
+No persistent reset, shared topic deletion, workflow-history deletion, unrelated-lab
+cleanup, new service, generic device framework, DHCP/ZTP, or Feature 005 work occurred.
+Remaining limitations are the local-lab-only insecure TLS policy, CLI-origin update's
+preservation of stale unmentioned configuration, the canonical host's 2-vCPU capacity, and
+netlab's `26.08` display form for the planned 26.8.0 release.

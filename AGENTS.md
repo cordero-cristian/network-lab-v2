@@ -22,9 +22,14 @@
   user authorization. Update docs and tests alongside approved implementation.
 
 <!-- SPECKIT START -->
-Active feature: `specs/003-event-driven-execution/spec.md`.
-Read `specs/003-event-driven-execution/plan.md` and `tasks.md` after they are generated.
+Active feature: `specs/004-srlinux-deployment-validation/spec.md`.
+Read `specs/004-srlinux-deployment-validation/plan.md` and `tasks.md` before implementation.
 Feature 003 implementation was approved on 2026-09-09 with separate Temporal running
 conflict and closed reuse policies. Implementation and reference acceptance completed
-on 2026-09-10. Preserve it and do not create or begin Feature 004.
+on 2026-09-10. Preserve it. Feature 004 implementation was conditionally approved on
+2026-09-10. Canonical T001 found material BGP AF and address-read differences; planning
+artifacts were corrected. Feature 004 corrected implementation was approved on 2026-09-10
+after canonical T001. Implementation and canonical acceptance completed on 2026-09-11.
+Preserve Feature 004; do not begin Feature 005 without separate Spec Kit artifacts and
+explicit approval.
 <!-- SPECKIT END -->

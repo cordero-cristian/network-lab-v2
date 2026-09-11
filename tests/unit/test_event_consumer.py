@@ -18,13 +18,17 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from network_automation.events import consumer as consumer_module
 from network_automation.events.consumer import process_message
-from network_automation.events.models import RenderDeviceConfigRequest
+from network_automation.events.models import (
+    DeployDeviceConfigRequest,
+    RenderDeviceConfigRequest,
+)
 from network_automation.workflows.render_device import RenderDeviceConfigWorkflow
 
 
 EVENT_ID = UUID("77ee1844-cd3a-4c45-8de7-3dd76fc7da2d")
 CORRELATION_ID = UUID("fb2b2b84-a0e2-45c1-a870-59c636c34a80")
 WORKFLOW_ID = f"render-device-config:{EVENT_ID}"
+DEPLOYMENT_WORKFLOW_ID = "deploy-device-config:77ee1844-cd3a-4c45-8de7-3dd76fc7da2d"
 
 
 class FakeMessage:
@@ -83,6 +87,20 @@ def request_bytes(**overrides: Any) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
+def deployment_request_bytes(**overrides: Any) -> bytes:
+    payload: dict[str, object] = {
+        "event_type": "network.deployment.requested",
+        "event_version": 1,
+        "event_id": str(EVENT_ID),
+        "correlation_id": str(CORRELATION_ID),
+        "device_name": "f004-leaf01",
+        "requested_at": "2026-09-10T18:00:00Z",
+        "source": "cli",
+    }
+    payload.update(overrides)
+    return json.dumps(payload).encode("utf-8")
+
+
 def assert_exact_seek(call: tuple[str, object], message: FakeMessage) -> None:
     name, position = call
     assert name == "seek"
@@ -116,6 +134,188 @@ async def test_valid_message_starts_exact_workflow_then_commits_synchronously() 
         execution_timeout=timedelta(minutes=10),
         rpc_timeout=timedelta(seconds=10),
     )
+    assert consumer.calls == [("commit", (message, False))]
+
+
+@pytest.mark.asyncio
+async def test_deployment_topic_starts_same_workflow_with_exact_deployment_input() -> None:
+    message = FakeMessage(
+        deployment_request_bytes(), topic="network.deployment.requested"
+    )
+    consumer = FakeConsumer()
+    temporal_client = AsyncMock()
+
+    assert await process_message(message, consumer, temporal_client) is True
+
+    temporal_client.start_workflow.assert_awaited_once_with(
+        RenderDeviceConfigWorkflow.run,
+        DeployDeviceConfigRequest(
+            operation="deploy",
+            event_id=EVENT_ID,
+            correlation_id=CORRELATION_ID,
+            device_name="f004-leaf01",
+        ),
+        id=DEPLOYMENT_WORKFLOW_ID,
+        task_queue="network-automation",
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        execution_timeout=timedelta(minutes=10),
+        rpc_timeout=timedelta(seconds=10),
+    )
+    assert consumer.calls == [("commit", (message, False))]
+
+
+@pytest.mark.asyncio
+async def test_accepted_deployment_log_has_safe_correlated_context_without_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    payload = deployment_request_bytes(source="credential=super-secret")
+    message = FakeMessage(payload, topic="network.deployment.requested")
+
+    with caplog.at_level(logging.INFO):
+        assert await process_message(message, FakeConsumer(), AsyncMock()) is True
+
+    record = caplog.records[-1]
+    assert record.event_type == "network.deployment.requested"  # type: ignore[attr-defined]
+    assert record.event_id == str(EVENT_ID)  # type: ignore[attr-defined]
+    assert record.correlation_id == str(CORRELATION_ID)  # type: ignore[attr-defined]
+    assert record.workflow_id == DEPLOYMENT_WORKFLOW_ID  # type: ignore[attr-defined]
+    assert record.device_name == "f004-leaf01"  # type: ignore[attr-defined]
+    assert payload.decode() not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "traceback" not in caplog.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_deployment_running_duplicate_attaches_and_commits_synchronously() -> None:
+    first = FakeMessage(
+        deployment_request_bytes(), topic="network.deployment.requested", offset=41
+    )
+    duplicate = FakeMessage(
+        deployment_request_bytes(), topic="network.deployment.requested", offset=42
+    )
+    consumer = FakeConsumer()
+    temporal_client = AsyncMock()
+    running_handle = object()
+    temporal_client.start_workflow.side_effect = [running_handle, running_handle]
+
+    assert await process_message(first, consumer, temporal_client) is True
+    assert await process_message(duplicate, consumer, temporal_client) is True
+
+    assert temporal_client.start_workflow.await_count == 2
+    for start_call in temporal_client.start_workflow.await_args_list:
+        assert start_call.args == (
+            RenderDeviceConfigWorkflow.run,
+            DeployDeviceConfigRequest(
+                operation="deploy",
+                event_id=EVENT_ID,
+                correlation_id=CORRELATION_ID,
+                device_name="f004-leaf01",
+            ),
+        )
+        assert start_call.kwargs["id"] == (
+            "deploy-device-config:77ee1844-cd3a-4c45-8de7-3dd76fc7da2d"
+        )
+        assert (
+            start_call.kwargs["id_conflict_policy"]
+            is WorkflowIDConflictPolicy.USE_EXISTING
+        )
+        assert (
+            start_call.kwargs["id_reuse_policy"]
+            is WorkflowIDReusePolicy.REJECT_DUPLICATE
+        )
+    assert consumer.calls == [
+        ("commit", (first, False)),
+        ("commit", (duplicate, False)),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deployment_retained_closed_rejection_commits_synchronously() -> None:
+    message = FakeMessage(
+        deployment_request_bytes(), topic="network.deployment.requested"
+    )
+    consumer = FakeConsumer()
+    temporal_client = AsyncMock()
+    temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+        "deploy-device-config:77ee1844-cd3a-4c45-8de7-3dd76fc7da2d",
+        "RenderDeviceConfigWorkflow",
+        run_id="retained-deployment-run",
+    )
+
+    assert await process_message(message, consumer, temporal_client) is True
+
+    start_call = temporal_client.start_workflow.await_args
+    assert start_call is not None
+    assert start_call.kwargs["id"] == (
+        "deploy-device-config:77ee1844-cd3a-4c45-8de7-3dd76fc7da2d"
+    )
+    assert (
+        start_call.kwargs["id_conflict_policy"]
+        is WorkflowIDConflictPolicy.USE_EXISTING
+    )
+    assert (
+        start_call.kwargs["id_reuse_policy"]
+        is WorkflowIDReusePolicy.REJECT_DUPLICATE
+    )
+    assert consumer.calls == [("commit", (message, False))]
+
+
+@pytest.mark.asyncio
+async def test_uncertain_deployment_start_seeks_exact_message_without_committing() -> None:
+    message = FakeMessage(
+        deployment_request_bytes(),
+        topic="network.deployment.requested",
+        partition=6,
+        offset=73,
+    )
+    consumer = FakeConsumer()
+    temporal_client = AsyncMock()
+    temporal_client.start_workflow.side_effect = TimeoutError("start result unknown")
+
+    assert await process_message(message, consumer, temporal_client) is False
+
+    assert len(consumer.calls) == 1
+    assert_exact_seek(consumer.calls[0], message)
+
+
+@pytest.mark.asyncio
+async def test_uncertain_deployment_commit_seeks_same_message_after_sync_commit() -> None:
+    message = FakeMessage(
+        deployment_request_bytes(),
+        topic="network.deployment.requested",
+        partition=6,
+        offset=74,
+    )
+    consumer = FakeConsumer(commit_error=TimeoutError("commit result unknown"))
+    temporal_client = AsyncMock()
+
+    assert await process_message(message, consumer, temporal_client) is False
+
+    temporal_client.start_workflow.assert_awaited_once()
+    assert consumer.calls[0] == ("commit", (message, False))
+    assert_exact_seek(consumer.calls[1], message)
+
+
+@pytest.mark.parametrize(
+    ("topic", "payload"),
+    [
+        ("network.render.requested", deployment_request_bytes()),
+        ("network.deployment.requested", request_bytes()),
+    ],
+    ids=["deployment-on-render-topic", "render-on-deployment-topic"],
+)
+@pytest.mark.asyncio
+async def test_cross_topic_valid_request_is_poison(
+    topic: str, payload: bytes
+) -> None:
+    message = FakeMessage(payload, topic=topic)
+    consumer = FakeConsumer()
+    temporal_client = AsyncMock()
+
+    assert await process_message(message, consumer, temporal_client) is True
+
+    temporal_client.start_workflow.assert_not_awaited()
     assert consumer.calls == [("commit", (message, False))]
 
 
@@ -304,6 +504,7 @@ async def test_consumer_runtime_configures_manual_commit_health_and_close(
         kafka_bootstrap_servers="kafka.test:9092",
         render_consumer_group="consumer.test",
         render_request_topic="requests.test",
+        deployment_request_topic="deployment-requests.test",
         probe_timeout_seconds=7,
     )
 
@@ -320,7 +521,7 @@ async def test_consumer_runtime_configures_manual_commit_health_and_close(
         "enable.auto.commit": False,
         "auto.offset.reset": "earliest",
     }
-    assert captured["topics"] == ["requests.test"]
+    assert captured["topics"] == ["requests.test", "deployment-requests.test"]
     assert captured["metadata_timeout"] == 7
     assert captured["closed"] is True
     assert ready.is_file()

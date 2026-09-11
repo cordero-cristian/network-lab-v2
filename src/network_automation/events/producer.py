@@ -1,20 +1,34 @@
-"""Narrow Kafka publisher for the three render event contracts."""
+"""Narrow Kafka publisher for the render and deployment event contracts."""
 
 from __future__ import annotations
 
 from confluent_kafka import Producer
 
-from network_automation.events.models import RenderCompleted, RenderFailed, RenderRequested
+from network_automation.events.models import (
+    DeploymentCompleted,
+    DeploymentFailed,
+    DeploymentRequested,
+    RenderCompleted,
+    RenderFailed,
+    RenderRequested,
+)
 from network_automation.settings import LabSettings
 
-RenderEvent = RenderRequested | RenderCompleted | RenderFailed
+AutomationEvent = (
+    RenderRequested
+    | RenderCompleted
+    | RenderFailed
+    | DeploymentRequested
+    | DeploymentCompleted
+    | DeploymentFailed
+)
 
 
 class EventPublishError(RuntimeError):
     """A credential-safe Kafka publication failure."""
 
 
-def publish_event(event: RenderEvent, settings: LabSettings | None = None) -> None:
+def publish_event(event: AutomationEvent, settings: LabSettings | None = None) -> None:
     settings = settings or LabSettings()
     if isinstance(event, RenderRequested):
         topic = settings.render_request_topic
@@ -22,8 +36,14 @@ def publish_event(event: RenderEvent, settings: LabSettings | None = None) -> No
         topic = settings.render_completed_topic
     elif isinstance(event, RenderFailed):
         topic = settings.render_failed_topic
+    elif isinstance(event, DeploymentRequested):
+        topic = settings.deployment_request_topic
+    elif isinstance(event, DeploymentCompleted):
+        topic = settings.deployment_completed_topic
+    elif isinstance(event, DeploymentFailed):
+        topic = settings.deployment_failed_topic
     else:
-        raise TypeError("unsupported render event type")
+        raise TypeError("unsupported automation event type")
 
     delivery_errors: list[object] = []
 

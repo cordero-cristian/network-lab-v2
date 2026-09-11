@@ -17,9 +17,15 @@ from network_automation.workflows.render_device import RenderDeviceConfigWorkflo
 
 
 @pytest.mark.asyncio
-async def test_worker_registers_one_workflow_two_activities_and_bounded_executor(
+async def test_worker_registers_one_workflow_five_activities_and_bounded_executor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from network_automation.activities.deployment import (
+        deploy_device_artifact,
+        prepare_device_deployment,
+        validate_device_state,
+    )
+
     connected: dict[str, object] = {}
     registered: dict[str, object] = {}
     lifecycle: list[str] = []
@@ -68,7 +74,13 @@ async def test_worker_registers_one_workflow_two_activities_and_bounded_executor
     }
     assert registered["task_queue"] == "network-automation"
     assert registered["workflows"] == [RenderDeviceConfigWorkflow]
-    assert registered["activities"] == [render_device_artifact, publish_render_result]
+    assert registered["activities"] == [
+        render_device_artifact,
+        publish_render_result,
+        prepare_device_deployment,
+        deploy_device_artifact,
+        validate_device_state,
+    ]
     executor = registered["activity_executor"]
     assert isinstance(executor, ThreadPoolExecutor)
     assert 1 <= executor._max_workers <= 32

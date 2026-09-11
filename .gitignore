@@ -19,6 +19,7 @@ lab/hosts.yml
 lab/ansible.cfg
 lab/group_vars/
 lab/host_vars/
+lab/config/
 lab/node_files/
 lab/netlab.snapshot.pickle
 lab/netlab-devices.yml

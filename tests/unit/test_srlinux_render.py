@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import tempfile
@@ -6,10 +7,11 @@ from pathlib import Path
 import pytest
 from jinja2 import UndefinedError
 
-from network_automation.intent.models import InterfaceIntent
+from network_automation.intent.models import BgpNeighborIntent, InterfaceIntent
 from network_automation.intent.nautobot import device_intent_from_nautobot
 from network_automation.rendering.srlinux import (
     UnsupportedPlatformError,
+    _write_srlinux_artifact,
     _environment,
     artifact_path,
     render_srlinux,
@@ -32,6 +34,37 @@ def test_one_hundred_renders_are_byte_identical() -> None:
     outputs = {render_srlinux(leaf01()).encode() for _ in range(100)}
     assert len(outputs) == 1
     assert outputs.pop().endswith(b"\n")
+
+
+def test_bgp_peer_groups_are_deterministic_for_shared_and_mixed_remote_asns() -> None:
+    intent = leaf01()
+    neighbors = (
+        BgpNeighborIntent(address="192.0.2.5", remote_asn=65200, description="spine03"),
+        BgpNeighborIntent(address="192.0.2.1", remote_asn=65100, description="spine01"),
+        BgpNeighborIntent(address="192.0.2.3", remote_asn=65200, description="spine02"),
+    )
+
+    output = render_srlinux(
+        intent.model_copy(update={"bgp": intent.bgp.model_copy(update={"neighbors": neighbors})})
+    )
+    reversed_output = render_srlinux(
+        intent.model_copy(
+            update={"bgp": intent.bgp.model_copy(update={"neighbors": tuple(reversed(neighbors))})}
+        )
+    )
+
+    assert output == reversed_output
+    assert output.count("protocols bgp afi-safi ipv4-unicast admin-state enable\n") == 1
+    assert [line for line in output.splitlines() if "protocols bgp group " in line] == [
+        "set / network-instance default protocols bgp group peer-as-65100 peer-as 65100",
+        "set / network-instance default protocols bgp group peer-as-65200 peer-as 65200",
+    ]
+    assert [line for line in output.splitlines() if " peer-group " in line] == [
+        "set / network-instance default protocols bgp neighbor 192.0.2.1 peer-group peer-as-65100",
+        "set / network-instance default protocols bgp neighbor 192.0.2.3 peer-group peer-as-65200",
+        "set / network-instance default protocols bgp neighbor 192.0.2.5 peer-group peer-as-65200",
+    ]
+    assert " neighbor 192.0.2.1 peer-as " not in output
 
 
 def test_render_order_has_total_natural_name_tiebreaker() -> None:
@@ -70,6 +103,34 @@ def test_artifact_path_and_atomic_write_create_directory(tmp_path: Path) -> None
     assert path == output_dir / "leaf01.cfg"
     assert path.read_bytes() == EXPECTED.read_bytes()
     assert not list(output_dir.glob("*.tmp"))
+
+
+def test_internal_write_hashes_exact_ascii_bytes_before_atomic_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = EXPECTED.read_bytes()
+    events: list[tuple[str, object]] = []
+    real_sha256 = hashlib.sha256
+    real_replace = os.replace
+
+    def record_sha256(value: bytes):
+        events.append(("hash", value))
+        return real_sha256(value)
+
+    def record_replace(source: object, destination: object) -> None:
+        events.append(("replace", destination))
+        real_replace(source, destination)
+
+    monkeypatch.setattr(hashlib, "sha256", record_sha256)
+    monkeypatch.setattr(os, "replace", record_replace)
+
+    result = _write_srlinux_artifact(leaf01(), tmp_path)
+
+    assert events == [("hash", expected), ("replace", tmp_path / "leaf01.cfg")]
+    assert result.path == tmp_path / "leaf01.cfg"
+    assert result.sha256 == real_sha256(expected).hexdigest()
+    assert result.byte_count == len(expected)
+    assert result.path.read_bytes() == expected
 
 
 def test_replace_failure_preserves_existing_artifact_and_removes_temp(

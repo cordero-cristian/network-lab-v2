@@ -14,6 +14,8 @@ from temporalio.exceptions import ApplicationError
 from network_automation.cli.render import render_device
 from network_automation.events.models import (
     ArtifactMetadata,
+    DeploymentCompleted,
+    DeploymentFailed,
     RenderCompleted,
     RenderDeviceConfigRequest,
     RenderFailed,
@@ -52,6 +54,7 @@ def render_device_artifact(request: RenderDeviceConfigRequest) -> ArtifactMetada
         "event_id": str(request.event_id),
         "correlation_id": str(request.correlation_id),
         "device_name": request.device_name,
+        "activity": "render_device_artifact",
     }
     LOGGER.info(
         "Rendering requested artifact event_id=%s correlation_id=%s device_name=%s",
@@ -81,19 +84,27 @@ def render_device_artifact(request: RenderDeviceConfigRequest) -> ArtifactMetada
 
 
 @activity.defn(name="publish_render_result")
-def publish_render_result(result: RenderCompleted | RenderFailed) -> None:
+def publish_render_result(
+    result: RenderCompleted | RenderFailed | DeploymentCompleted | DeploymentFailed,
+) -> None:
+    category = getattr(result, "error_type", None)
     LOGGER.info(
-        "Publishing render result event_id=%s correlation_id=%s workflow_id=%s "
-        "device_name=%s",
+        "Publishing automation result event_type=%s event_id=%s correlation_id=%s "
+        "workflow_id=%s device_name=%s activity=publish_render_result category=%s",
+        result.event_type,
         result.event_id,
         result.correlation_id,
         result.workflow_id,
         result.device_name,
+        category,
         extra={
+            "event_type": result.event_type,
             "event_id": str(result.event_id),
             "correlation_id": str(result.correlation_id),
             "workflow_id": result.workflow_id,
             "device_name": result.device_name,
+            "activity": "publish_render_result",
+            "category": category,
         },
     )
     publish_event(result)

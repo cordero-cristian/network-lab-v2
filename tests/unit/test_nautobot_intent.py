@@ -10,12 +10,66 @@ from network_automation.intent.nautobot import (
     NautobotError,
     device_intent_from_nautobot,
 )
+from network_automation.rendering.srlinux import render_srlinux
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/nautobot/leaf01.json"
 
 
 def raw_intent() -> dict[str, object]:
     return json.loads(FIXTURE.read_text())
+
+
+def deployment_transport(
+    primary_ip4: object,
+    *,
+    ip_address: object = "192.0.2.10/24",
+    ip_id: object = "management-ip",
+) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/dcim/devices/":
+            device = deepcopy(raw_intent()["device"])
+            device["id"] = "device-id"
+            device["primary_ip4"] = primary_ip4
+            device["platform"] = {
+                "url": "http://nautobot.test/api/dcim/platforms/platform-id/"
+            }
+            device["role"] = {"url": "http://nautobot.test/api/extras/roles/role-id/"}
+            device["location"] = {
+                "url": "http://nautobot.test/api/dcim/locations/location-id/"
+            }
+            return httpx.Response(200, json={"results": [device]})
+        if path == "/api/dcim/platforms/platform-id/":
+            return httpx.Response(
+                200, json={"network_driver": "nokia_srl", "display": "Nokia SR Linux"}
+            )
+        if path == "/api/extras/roles/role-id/":
+            return httpx.Response(200, json={"display": "leaf"})
+        if path == "/api/dcim/locations/location-id/":
+            return httpx.Response(200, json={"display": "test-site"})
+        if path == "/api/dcim/interfaces/":
+            interfaces = deepcopy(raw_intent()["interfaces"])
+            for index, interface in enumerate(interfaces):
+                interface["ip_addresses"] = [
+                    {"url": f"http://nautobot.test/api/ipam/ip-addresses/ip{index}/"}
+                ]
+            return httpx.Response(
+                200, json={"next": None, "results": interfaces}
+            )
+        if path.startswith("/api/ipam/ip-addresses/"):
+            address_id = path.rstrip("/").rsplit("/", 1)[-1]
+            interface_addresses = {
+                "ip0": "192.0.2.2/31",
+                "ip1": "10.0.0.1/32",
+                "ip2": "192.0.2.0/31",
+            }
+            if address_id in interface_addresses:
+                address = interface_addresses[address_id]
+                return httpx.Response(200, json={"id": address_id, "address": address})
+            return httpx.Response(200, json={"id": ip_id, "address": ip_address})
+        raise AssertionError(request.url)
+
+    return httpx.MockTransport(handler)
 
 
 def test_convert_raw_nautobot_data() -> None:
@@ -324,3 +378,106 @@ def test_client_rejects_malformed_lookup_shapes(payload: object) -> None:
     with NautobotClient("http://nautobot.test", "secret", transport=transport) as client:
         with pytest.raises(NautobotError):
             client.get_device_data("leaf01")
+
+
+def test_client_extracts_primary_ip4_host_without_changing_render_intent() -> None:
+    relation = {
+        "id": "management-ip",
+        "url": "http://nautobot.test/api/ipam/ip-addresses/management-ip/",
+        "address": "192.0.2.10/24",
+    }
+    with NautobotClient(
+        "http://nautobot.test",
+        "secret",
+        transport=deployment_transport(relation),
+    ) as client:
+        deployment = client.get_deployment_intent("leaf01")
+
+    assert str(deployment.management_address) == "192.0.2.10"
+    assert deployment.intent == device_intent_from_nautobot(raw_intent())
+    assert render_srlinux(deployment.intent) == render_srlinux(
+        device_intent_from_nautobot(raw_intent())
+    )
+
+
+@pytest.mark.parametrize(
+    ("relation", "match"),
+    [
+        (None, "primary_ip4"),
+        ([], "primary_ip4.*object"),
+        ({"id": "management-ip"}, "primary_ip4 URL"),
+        (
+            {
+                "id": "management-ip",
+                "url": "http://nautobot.test/api/dcim/devices/management-ip/",
+            },
+            "relation is inconsistent",
+        ),
+        (
+            {
+                "id": "management-ip",
+                "url": "https://other.invalid/api/ipam/ip-addresses/management-ip/",
+            },
+            "unexpected origin",
+        ),
+    ],
+)
+def test_client_rejects_missing_malformed_or_cross_origin_primary_ip4(
+    relation: object, match: str
+) -> None:
+    with NautobotClient(
+        "http://nautobot.test",
+        "secret",
+        transport=deployment_transport(relation),
+    ) as client:
+        with pytest.raises(NautobotError, match=match):
+            client.get_deployment_intent("leaf01")
+
+
+@pytest.mark.parametrize("address", [None, "not-an-address", "2001:db8::10/64"])
+def test_client_rejects_malformed_or_non_ipv4_primary_address(address: object) -> None:
+    relation = {
+        "id": "management-ip",
+        "url": "http://nautobot.test/api/ipam/ip-addresses/management-ip/",
+    }
+    with NautobotClient(
+        "http://nautobot.test",
+        "secret",
+        transport=deployment_transport(relation, ip_address=address),
+    ) as client:
+        with pytest.raises(NautobotError, match="primary_ip4"):
+            client.get_deployment_intent("leaf01")
+
+
+@pytest.mark.parametrize(
+    ("relation", "ip_id", "ip_address"),
+    [
+        (
+            {
+                "id": "management-ip",
+                "url": "http://nautobot.test/api/ipam/ip-addresses/management-ip/",
+            },
+            "different-ip",
+            "192.0.2.10/24",
+        ),
+        (
+            {
+                "id": "management-ip",
+                "url": "http://nautobot.test/api/ipam/ip-addresses/management-ip/",
+                "address": "192.0.2.11/24",
+            },
+            "management-ip",
+            "192.0.2.10/24",
+        ),
+    ],
+)
+def test_client_rejects_inconsistent_primary_ip4_relation(
+    relation: object, ip_id: str, ip_address: str
+) -> None:
+    with NautobotClient(
+        "http://nautobot.test",
+        "secret",
+        transport=deployment_transport(relation, ip_id=ip_id, ip_address=ip_address),
+    ) as client:
+        with pytest.raises(NautobotError, match="primary_ip4 relation is inconsistent"):
+            client.get_deployment_intent("leaf01")

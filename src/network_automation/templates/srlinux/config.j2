@@ -14,6 +14,8 @@ set / interface {{ interface.name }} subinterface 0 ipv4 address {{ interface.ad
 {% endfor %}set / network-instance default protocols bgp admin-state enable
 set / network-instance default protocols bgp autonomous-system {{ bgp.local_asn }}
 set / network-instance default protocols bgp router-id {{ bgp.router_id }}
-{% for neighbor in bgp.neighbors %}set / network-instance default protocols bgp neighbor {{ neighbor.address }} peer-as {{ neighbor.remote_asn }}
+set / network-instance default protocols bgp afi-safi ipv4-unicast admin-state enable
+{% for group in bgp.peer_groups %}set / network-instance default protocols bgp group {{ group.name }} peer-as {{ group.remote_asn }}
+{% endfor %}{% for neighbor in bgp.neighbors %}set / network-instance default protocols bgp neighbor {{ neighbor.address }} peer-group {{ neighbor.peer_group }}
 {% if neighbor.description %}set / network-instance default protocols bgp neighbor {{ neighbor.address }} description {{ neighbor.description }}
 {% endif %}{% endfor %}
