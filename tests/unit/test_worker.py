@@ -150,6 +150,7 @@ def test_worker_startup_failure_is_nonzero_and_redacts_exception_detail(
     async def fail(*_: object, **__: object) -> None:
         raise ConnectionError("temporal rejected token=super-secret")
 
+    monkeypatch.setattr(worker, "LabSettings", lambda: SimpleNamespace())
     monkeypatch.setattr(worker, "run_worker", fail)
 
     assert worker.main() == 1
