@@ -506,3 +506,47 @@ cleanup, new service, generic device framework, DHCP/ZTP, or Feature 005 work oc
 Remaining limitations are the local-lab-only insecure TLS policy, CLI-origin update's
 preservation of stale unmentioned configuration, the canonical host's 2-vCPU capacity, and
 netlab's `26.08` display form for the planned 26.8.0 release.
+
+### Clean-Checkout Closeout
+
+The implementation plus clean-environment test fix were pushed on branch
+`004-srlinux-deployment-validation` at commit
+`a35ed5aca87db06661272173a464733476b3b1f1`. Local `git ls-remote origin
+refs/heads/004-srlinux-deployment-validation` returned that exact SHA before validation.
+The VM has no GitHub credentials, so a Git bundle created from the verified pushed branch
+was transferred over the operator SSH session and cloned into fresh directory
+`/root/network-lab-v2-feature004-clean-a35ed5a`. Its origin was then set to
+`git@github.com:cordero-cristian/network-lab-v2.git`; the checkout tracks the Feature 004
+branch and resolved the exact pushed SHA above.
+
+The clean checkout did not contain an `.env`. Compose and host-side supporting-service
+commands read the existing ignored `/root/network-lab-v2-acceptance/.env` at runtime without
+copying it. SR Linux username/password were sourced separately and only from the clean
+checkout's generated `lab/group_vars/srlinux/topology.json`; their values were neither
+printed nor persisted.
+
+| Clean-checkout command / check | Ubuntu result |
+|---|---|
+| `/root/.local/bin/uv sync --locked --directory /root/network-lab-v2-feature004-clean-a35ed5a` | Passed; created a fresh `.venv` and installed 33 locked packages with CPython 3.12.13 |
+| `/root/.local/bin/uv run --directory /root/network-lab-v2-feature004-clean-a35ed5a pytest -q` | Passed, 337 tests in 14.10s |
+| `docker compose --env-file /root/network-lab-v2-acceptance/.env -p network-lab --project-directory /root/network-lab-v2-feature004-clean-a35ed5a -f .../compose.yaml config --quiet` | Passed |
+| Same Compose command with additive `-f .../compose.device-access.yaml config --quiet` | Passed without requiring the device network to exist |
+| `git -C /root/network-lab-v2-feature004-clean-a35ed5a diff --check` | Passed |
+| Clean-checkout automation-worker build and worker/consumer `up -d --no-deps --wait` | Passed; both stateless services became healthy without recreating dependencies |
+| Clean-checkout `network-lab-check` | Passed all supporting service, initializer, Nautobot, Kafka, Temporal RPC/namespace, and UI checks |
+| Clean-checkout `pytest tests/integration/test_services.py -q` | Passed, 5 tests in 24.75s |
+| Clean-checkout `pytest tests/integration/test_nautobot_render.py -q` | Passed, 1 test in 8.63s |
+| Clean-checkout `pytest tests/integration/test_event_driven_render.py -q` | Passed, 1 test in 176.59s |
+| From clean `lab/`: `netlab up topology.yml -p clab --no-config` and `netlab status` | Passed; exactly the two pinned nodes, one link, fixed management addresses, and hostname-only bootstrap started |
+| Clean-checkout `pytest tests/integration/test_srlinux_deployment.py -q` | Passed, 7 tests in 367.08s |
+| Clean-checkout failure/redaction selection with `-k real_failure` | Passed, 4 tests and 3 deselected in 215.96s |
+| Worker log value/marker audit | Passed; no generated password, raw configuration/response marker, traceback, or stack trace |
+| Worker removal, `netlab down --cleanup` from clean `lab/`, credential unset, and base-worker restoration | Passed |
+| Post-cleanup resource and health assertions | Passed; device containers/network absent, named-volume set unchanged, root Temporal config present, base worker only on `network-lab_default`, no netlab-managed lab, and aggregate health green |
+| Final clean-checkout status | Clean at the implementation SHA, tracking `origin/004-srlinux-deployment-validation` |
+
+No volume, Kafka topic, Temporal namespace/history, Nautobot database, unrelated lab, or
+other persistent data was reset. Remaining limitations are unchanged: local-lab-only
+insecure gNMI TLS, CLI-origin update preservation of stale unmentioned configuration,
+netlab's `26.08` display form, the 2-vCPU canonical capacity, and bundle-based checkout
+transfer because the VM intentionally has no GitHub credentials. No Feature 005 work began.
