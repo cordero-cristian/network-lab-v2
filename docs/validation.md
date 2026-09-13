@@ -1,6 +1,6 @@
 # Validation Evidence
 
-**Dates**: 2026-09-08 through 2026-09-11
+**Dates**: 2026-09-08 through 2026-09-12
 
 ## Local Implementation Environment
 
@@ -550,3 +550,97 @@ other persistent data was reset. Remaining limitations are unchanged: local-lab-
 insecure gNMI TLS, CLI-origin update preservation of stale unmentioned configuration,
 netlab's `26.08` display form, the 2-vCPU canonical capacity, and bundle-based checkout
 transfer because the VM intentionally has no GitHub credentials. No Feature 005 work began.
+
+## Feature 005 Native-ZTP Gate
+
+**Date**: 2026-09-12
+
+**Result**: T001 completed and failed the mandatory gate; T002 reconciled the planning
+artifacts; T003 onward was not started.
+
+### Environment And Isolation
+
+The gate ran on Ubuntu 24.04.4 LTS x86-64, kernel 6.8.0-139-generic, Docker 29.1.3,
+containerlab 0.79.0 (`5ae50094a`), and netlab 26.08. The exact image was
+`ghcr.io/nokia/srlinux:26.7.2-519`, linux/amd64 digest
+`sha256:0096fe3ebcafabb7253492e2060425fe027a168e0e066766d1e85efbb0b48be8`.
+
+Preflight listed only the retained healthy `network-lab-*` supporting containers and Docker
+networks `bridge`, `host`, `none`, and `network-lab_default`. The normal Feature 004 topology
+was absent and remained untouched.
+
+Three disposable raw-containerlab topologies used unique `f005-t001-*` names. The discovery
+probes used a bootstrap container in `network-mode: none`, no published ports, no forwarding,
+and no default/host/physical/unrelated network. One direct veth was its only network path.
+dnsmasq 2.90 disabled DNS/upstream resolution and bound DHCP exclusively to that veth.
+
+### Commands And Results
+
+| Command / observation | Canonical result |
+|---|---|
+| `containerlab deploy` with two `ixr-d2l` nodes and `suppress-startup-config: true` | Both exact pinned nodes started; each still generated an approximately 125 KiB startup config and broad factory/containerlab management baseline |
+| Native process/API inspection | No `ztp`/`ztpd` process or port 50066 listener; `ztp service status` failed with connection refused; ordinary `sr_dhcp_client_mgr` alone was present |
+| Isolated in-band link, bootstrap `eth1` to SR Linux `ethernet-1/1` | dnsmasq healthy and interface-bound; zero DHCP packets and zero HTTP requests over two minutes |
+| Isolated OOB link, both containers `network-mode: none`, bootstrap `eth1` to SR Linux `eth0` | Link was up; zero DHCP packets, no lease, zero HTTP requests, and native ZTP API still unavailable over two minutes |
+| DHCP option 67 configured value | Exact value `http://192.0.2.2/ztp.py`; no DHCP offer occurred, so the option was configured but never delivered or evaluated by SR Linux |
+| Packet/HTTP evidence | Each capture was a 24-byte empty pcap header; each HTTP access log was zero bytes |
+| Native chassis read on two nodes | `/platform/chassis/serial-number` returned the same synthetic `Sim Serial No.` value on both nodes; generated chassis/card serial fields were empty |
+| Restart and destroy/recreate identity | Synthetic serial stayed non-unique; chassis MACs differed between nodes and changed on recreation, so no fallback identity was selected |
+| Standard management addressing | Docker IPAM assigned `172.20.20.2/.3`; the address did not come from the isolated DHCP service |
+| Network-none OOB addressing | SR Linux obtained no IPv4 address because it emitted no DHCP request |
+| Committed test hostname then `docker restart`, without save | Hostname disappeared; later running configuration was not startup-persistent |
+| Repeat hostname, `containerlab save`, then restart | Save reported writing `/etc/opt/srlinux/config.json`; hostname survived restart |
+| `containerlab destroy --cleanup`, test image/directory removal | All test-owned nodes, bootstrap container/image, veths, captures, HTTP logs, lab directory, host entries, SSH fragment, and `clab` network were removed |
+| Final resource comparison | Original supporting containers remained healthy and the Docker network set matched preflight |
+
+### Required Findings
+
+1. **Option 67 full HTTP URL**: Still unverified. The exact URL was configured, but no DHCP
+   Discover meant no option was delivered. No option 66, option 43, TFTP, or alternate
+   mechanism was tried.
+2. **Native mechanism**: Disproven for automatic fresh-container startup. The image contains
+   ZTP binaries/libraries/units, but its container entrypoint starts SR Linux without systemd
+   and did not start the native ZTP daemon/API.
+3. **Minimum content**: Still unverified. The served Python and hostname-only JSON were never
+   requested or executed. The generated baseline was materially broader than the proposed
+   minimum, although no Feature 002 loopback/fabric/BGP/policy artifact was preloaded.
+4. **Chassis serial**: Unsuitable. Native state returned one duplicate synthetic value and
+   generated hardware serial fields were empty.
+5. **Serial stability**: The placeholder repeated across restart/recreation but was not
+   unique. It cannot identify a device. No replacement identifier was selected.
+6. **Nautobot mapping**: The preferred chassis serial -> `Device.serial` mapping cannot be
+   unambiguous on this image. No test Nautobot records were created.
+7. **Management address**: Standard addresses came from Docker IPAM; isolated DHCP assigned
+   nothing. The planned identity -> Device -> `primary_ip4` chain was not exercisable.
+8. **Completion signal**: Unavailable. Native success, lease/retrieval, unique serial, and
+   unique Nautobot mapping could not be observed together. Containerlab-provided management
+   services alone were not treated as completion.
+9. **Repeated boot**: No ZTP or artifact fetch occurred on initial boot or restart because
+   native ZTP never started; this does not prove successful-ZTP replay semantics.
+10. **Configuration persistence**: A later running change was lost on restart without an
+    explicit startup save and survived after topology-owned `containerlab save`.
+11. **`containerlab save`**: Proven necessary for a later running change to survive restart
+    on the container runtime. This is historical container evidence only and cannot establish
+    native ZTP persistence or be used in genuine-runtime acceptance.
+12. **Architecture**: Native container ZTP and unique chassis serial were both load-bearing
+    assumptions and both failed. Feature 005 cannot proceed unchanged.
+
+### Security And Stop
+
+No plaintext device, Nautobot, Kafka, or Temporal credential was written to the probe files,
+packet captures, HTTP logs, repository artifacts, or retained evidence. No bootstrap secret
+or production configuration is included here. Safe evidence is limited to versions, status,
+addresses, counts, hashes, and the non-secret synthetic serial.
+
+No application source, normal topology, Compose file, production bootstrap artifact, event,
+workflow, Nautobot record, commit, push, shared-service restart, or persistent reset was
+performed. T002 records the failed gate in Feature 005's specification, research, plan,
+models, contracts, quickstart, tasks, review checklist, and agent guidance.
+
+### Deferred Planning Closeout
+
+**Status**: DEFERRED — BLOCKED ON ACCESS TO A GENUINE BOOTABLE SR LINUX RUNTIME
+
+Feature 005 may resume only when the owner provides or authorizes a genuine bootable SR Linux
+artifact whose provenance and lab use are acceptable and which can exercise the documented
+SR Linux auto-boot path. T001-T002 remain complete; T003-T048 remain deferred and blocked.
