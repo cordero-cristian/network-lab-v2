@@ -1,6 +1,6 @@
 # Validation Evidence
 
-**Dates**: 2026-09-08 through 2026-09-12
+**Dates**: 2026-09-08 through 2026-09-15
 
 ## Local Implementation Environment
 
@@ -644,3 +644,178 @@ models, contracts, quickstart, tasks, review checklist, and agent guidance.
 Feature 005 may resume only when the owner provides or authorizes a genuine bootable SR Linux
 artifact whose provenance and lab use are acceptable and which can exercise the documented
 SR Linux auto-boot path. T001-T002 remain complete; T003-T048 remain deferred and blocked.
+
+## Feature 006 Control Plane UI
+
+**Date**: 2026-09-14
+
+**Result**: Implementation and canonical acceptance completed. Empty, populated, live-device,
+retained-success/failure, partial-failure/recovery, desktop/375-pixel browser, exposure, forwarding,
+read-only, leak, regression, and cleanup checks passed.
+
+### Local Implementation Validation
+
+Validation ran on the macOS ARM64 environment recorded above. The existing supporting and
+automation containers remained running; only the two optional `ui` profile services were added.
+
+| Command / check | Result |
+|---|---|
+| `uv lock --check` and `uv sync --locked` | Passed; 39 packages resolved and 38 checked |
+| `uv run python -m compileall -q src tests` | Passed |
+| `uv run pytest` | Passed, 391 tests in 13.13s; two dependency deprecation warnings |
+| `uv build` | Passed; sdist and wheel built |
+| `npm ci` | Passed; 137 packages added, zero vulnerabilities |
+| `npm run test -- --run` | Passed, 12 files and 50 tests in 3.49s |
+| `npm run typecheck` | Passed |
+| `npm run build` | Passed; 41 modules transformed |
+| Base and `ui` profile Compose configuration | Passed |
+| `git diff --check` | Passed |
+| ARM64 automation and UI image build | Passed |
+| `ui` profile startup | Passed; API and nginx containers healthy |
+| API liveness and overview timing | Passed at 0.006 seconds and 1.50 seconds respectively |
+| `tests/integration/test_control_plane_api.py` | Passed, 2 tests in 6.21s against the healthy empty retained dataset |
+
+The integration suite proved truthful empty counts, same-origin proxy behavior, conditional detail
+reads when retained records exist, 405 responses for all aggregate POST attempts, and exclusion of
+configured credential values and forbidden raw markers. No records, events, workflows, artifacts,
+or device state were created to satisfy detail assertions.
+
+### Canonical Ubuntu Runtime
+
+Acceptance used an isolated synchronized source tree at
+`/root/network-lab-v2-feature006-acceptance` on the established Ubuntu 24.04.4 x86-64 host. It read
+the existing ignored runtime environment without copying it. Retained artifacts were copied into
+the isolated tree so the Compose contract used a literal project artifact directory; API access to
+that directory remained read-only. Existing supporting and automation containers were not
+recreated. The API and UI were started separately with `--no-deps`.
+
+| Command / check | Canonical result |
+|---|---|
+| Locked sync, compile, and full unit suite | Passed; 391 tests in 21.70s after correcting only the isolated acceptance-directory artifact staging |
+| `uv build` | Passed; sdist and wheel built |
+| Base and `ui` profile Compose configuration | Passed |
+| x86-64 automation and UI image build | Passed; frontend production build transformed 41 modules |
+| API and nginx startup | Passed; both containers healthy |
+| API liveness and overview timing | Passed at 0.006 seconds and 1.86 seconds respectively |
+| Same-origin nginx `/api/health` proxy and SPA fallback route | Passed with HTTP 200 |
+| Direct and proxied unsupported POST | Passed with HTTP 405 |
+| Published listeners | Passed; only `127.0.0.1:8001` and `127.0.0.1:3000` |
+| SSH forwarding | Passed; forwarded UI and API liveness each returned HTTP 200 |
+| Response and API/UI log scan | Passed; no configured secret value, traceback, authorization header, raw artifact path, or configuration marker found |
+| Canonical overview | Healthy and useful in 1.86 seconds, with accurate empty device, workflow, deployment, activity, and topology sections |
+| `tests/integration/test_control_plane_api.py` | Passed, 2 tests in 8.32s against the healthy empty retained dataset |
+
+The canonical source systems were healthy but contained zero Nautobot devices and zero admitted
+Temporal workflows in the retained visibility window. Consequently, device detail, bounded live
+state, workflow/deployment detail, successful or failed timelines, and populated topology could not
+be observed without creating prohibited acceptance fixtures. No SR Linux topology or device
+credentials were present, and no device read was attempted. The host has no Node/npm installation;
+frontend unit, type, and state-matrix tests therefore ran locally, while the pinned multi-stage UI
+image performed the canonical x86-64 production build.
+
+### Approved Partial Failure
+
+The separately approved reversible Nautobot stop/start was executed once. While Nautobot was
+stopped, `/api/overview` returned overall `degraded`, marked Nautobot and device sections
+`unavailable`, and kept the independent Temporal section `healthy`. The UI/API services remained
+healthy. Nautobot container health returned after 48 seconds and the API reported full recovery
+four seconds later, for 52 seconds total. No volume, database, intent, event, workflow, artifact, or
+device state was reset or changed.
+
+### Populated Canonical Acceptance
+
+On 2026-09-14/15 UTC, the approved Feature 004 two-node topology was started from the isolated
+checkout's `lab/` directory. Generated credentials were loaded into process environment only. The
+accepted Features 002-004 paths created legitimate durable evidence before UI observation:
+
+| Command / check | Canonical result |
+|---|---|
+| `network-lab-check` | Passed every supporting service, initializer, and application boundary |
+| `tests/integration/test_services.py -q` | Passed, 5 tests in 33.97s |
+| `tests/integration/test_nautobot_render.py -q` | Passed, 1 test in 15.78s; final post-cleanup rerun passed in 9.51s |
+| `tests/integration/test_event_components.py -q` | Passed, 2 tests in 2.54s |
+| `tests/integration/test_event_driven_render.py -q` | Passed, 1 test in 246.57s |
+| Initial Feature 004 invocation without `/root/.local/bin` in non-login `PATH` | Failed at tool preflight only, 7 errors in 2.40s; no test case or device mutation began |
+| Corrected `tests/integration/test_srlinux_deployment.py -q` | Passed all 7 real-device cases in 372.11s |
+| Final canonical `uv run pytest -q` | Passed, 391 tests in 15.91s; two dependency deprecation warnings |
+| Final canonical `uv build` and base/UI Compose configurations | Passed |
+
+Feature 004 produced four retained successful and four retained safely failed deployment outcomes;
+the admitted recent visibility window held 13 workflows total and eight deployments. For the
+observation window, an explicitly authorized invocation of the established Feature 004 fixture
+helper recreated the exact two-device Nautobot intent with 31 ID-recorded test-owned objects. This
+was real render/deployment-compatible intent for the running nodes, not injected API/UI data. No UI
+request published an event, started a workflow, rendered an artifact, deployed configuration, or
+mutated a device.
+
+The populated API reported two devices, 13 workflows, eight deployments, two topology nodes, and
+one reciprocal address-owned logical BGP link. One successful detail showed Temporal completion and
+business `deployment_succeeded`, including deploy attempt 2 and validation attempt 4 from durable
+history. One failed detail showed Temporal completion but business `deployment_failed`, failed stage
+`validate`, category `validation_failed`, and the sanitized message `Device state did not match
+intended invariants`. Detail retrieval took 0.041s.
+
+The one authorized `live=true` read for `f004-leaf01` completed in 3.229s, returned 14 passing native
+checks and zero mismatches, and stayed within the 15-second operation budget. The immediately
+following `live=false` observation took 2.320s and returned `not_configured`, proving the refresh path
+did not repeat device access. Current live convergence and the retained historical validation
+failure were displayed as distinct source- and time-labeled facts.
+
+The populated integration suite initially found nginx's stale Compose DNS after an earlier API-only
+recreation: direct API reads passed but same-origin proxying returned 502. Recreating the stateless
+nginx service with the API, as documented for joint startup, restored proxying. The populated suite
+then passed 2 tests in 31.76s; after the final bounded-read optimization it passed 2 tests in 17.41s.
+
+### Browser And Performance Acceptance
+
+The actual canonical x86-64 production UI was reached from the macOS workstation through SSH local
+forwarding and inspected with Brave's Chromium engine. Screenshots covered populated/partial
+overview, inventory, workflow list, and retained failed-workflow detail. CDP set an exact 375 by 900
+CSS-pixel viewport rather than relying on the headless browser's 500-pixel minimum window behavior.
+
+Desktop and exact 375-pixel checks found no page-level horizontal overflow. The operator shell,
+status text/shapes, responsive device rows, deterministic topology, physical/logical legend, and
+failure timeline remained readable. Navigation contained only Overview, Devices, and Workflows;
+the browser loaded no cross-origin resources and exposed no prohibited action control. The populated
+overview exposed `/devices/f004-leaf01` directly, satisfying the no-more-than-two-selection device
+path without issuing another live read. Failed stage/category/message became identifiable in 0.302s,
+well under 15 seconds.
+
+Initial populated overview measurements exposed avoidable serial and duplicate Nautobot reads. The
+final implementation shares one immutable inventory snapshot within an overview request and derives
+logical BGP declarations from validated Nautobot inventory context instead of expanding full
+render/deployment intent for topology. It retains reciprocal declaration, unique IP ownership,
+partial-data, and no-inference rules. Focused tests passed 62 cases after the correction. Final
+canonical API liveness was 0.012s, the fully populated API overview was useful in 1.814s, and a fresh
+exact-375-pixel browser overview was useful in 2.116s. Overall health and any unhealthy subsystem
+were visible within the 10-second criterion.
+
+### Final Security And Cleanup
+
+A value-based audit scanned nine populated API responses, two built browser assets, and both API/UI
+log streams against three loaded runtime secret values plus authorization, traceback, raw artifact
+path, host path, raw gNMI/configuration, canonical-address, and direct-upstream markers. It found zero
+secret or forbidden-marker matches. Browser performance entries contained zero external origins.
+OpenAPI exposed only `GET` and `HEAD`; `POST`, `PUT`, `PATCH`, and `DELETE` checks returned 405 for
+every aggregate route. Host listeners remained exactly `127.0.0.1:8001` and `127.0.0.1:3000`.
+
+Cleanup deleted and confirmed absent all 31 exact fixture IDs, removed the two SR Linux containers
+and `network-lab-devices-mgmt` through `netlab down --cleanup` from `lab/`, and removed temporary
+acceptance harnesses. Worker and API were recreated from base Compose with no device username or
+password values and only `network-lab_default`; UI was recreated with the API to refresh proxy DNS.
+Nautobot returned a healthy zero-device inventory, the topology containers/network and fixture
+manifest were absent, and final `network-lab-check` passed. No named volume, Kafka topic, Temporal
+namespace/history, unrelated Nautobot object, supporting service, or Feature 005 state was reset.
+
+Local final validation also passed 391 Python tests in 13.26s, 50 frontend tests in 12 files, frontend
+typecheck and the 41-module production build, `uv build`, base/UI Compose validation, and
+`git diff --check`. All Feature 006 tasks T001-T061 are complete; canonical acceptance passed on
+2026-09-15.
+
+Final Spec Kit analysis mapped all 57 functional requirements/success criteria to all 61 tasks with
+no unmapped task or constitutional architecture conflict. Owner-approved closeout corrected the one
+obsolete pre-implementation stop-rule contradiction. Five medium and one low residual wording risks
+remain in the approved artifacts: task-level dependency precision beyond the existing phase graph,
+terminal-detail staleness wording, optional-capability live-read modality, overall-health truth-table
+detail, overview-window terminology, and subjective visual-language wording. Implemented contracts,
+tests, and canonical evidence resolve each operationally; no code or acceptance gap remains.

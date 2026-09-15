@@ -31,9 +31,38 @@ ignored paths and prevents cleanup from colliding with the repository's root `co
 The topology owns only management/gNMI access, one link, and hostname identity bootstrap.
 Nautobot and automation own all loopback, routed-interface, and BGP intent.
 
-Attach only the existing worker with `compose.device-access.yaml`; inject credentials from
-generated inventory without persisting or printing them. Remove that worker endpoint before
-running `netlab down --cleanup` from `lab/`, unset both credential variables, then restore
-the base worker without device credentials. See the exact commands in the Feature 004
+Attach only the existing worker and, when the read-only Feature 006 UI is enabled, its API
+with `compose.device-access.yaml`; inject credentials from generated inventory without
+persisting or printing them. The UI API uses this attachment only for one on-demand device
+detail read. Its 15-second operation budget is not a polling interval: overview, inventory,
+topology, and subsequent device-detail refreshes do not contact devices.
+
+With the accepted topology already running and credentials exported only in the current
+shell, start the API attachment and same-origin UI proxy with:
+
+```sh
+docker compose \
+  -f compose.yaml \
+  -f compose.device-access.yaml \
+  --profile ui \
+  up -d automation-ui-api automation-ui
+```
+
+No UI/API route renders, deploys, retries, remediates, publishes, changes Nautobot, sends a
+gNMI Set, or otherwise mutates the lab. Device access failure degrades only live detail;
+inventory and retained Temporal evidence remain observable. Diagnose independently with
+`curl --fail http://127.0.0.1:8001/healthz`, API/UI container logs, and the source status
+shown in the UI. API liveness deliberately does not probe Nautobot, Kafka, Temporal, or a
+device.
+
+Before `netlab down --cleanup`, stop both optional UI services and the override worker,
+unset both credential variables, then restore the base worker without device credentials:
+
+```sh
+docker compose -f compose.yaml -f compose.device-access.yaml --profile ui stop automation-ui automation-ui-api
+unset LAB_DEVICE_USERNAME LAB_DEVICE_PASSWORD
+```
+
+Run cleanup from `lab/`. See the exact worker restoration commands in the Feature 004
 quickstart and observed results in `docs/validation.md`. Never remove supporting Compose
-volumes during topology cleanup.
+volumes during topology or UI cleanup.

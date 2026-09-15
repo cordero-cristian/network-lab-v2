@@ -3,12 +3,14 @@
 .env.*
 !.env.example
 .venv/
+node_modules/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
 dist/
 build/
+coverage/
 /artifacts/
 .DS_Store
 lab/clab-*/

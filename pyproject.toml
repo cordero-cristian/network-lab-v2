@@ -9,12 +9,14 @@ description = "Development tooling for the network automation lab"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "confluent-kafka>=2.11,<3",
+  "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "jinja2>=3.1,<4",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "pygnmi==0.8.15",
   "temporalio>=1.18,<2",
+  "uvicorn>=0.35,<1",
 ]
 
 [project.scripts]
@@ -23,6 +25,7 @@ network-render = "network_automation.cli.render:main"
 network-render-request = "network_automation.cli.render_request:main"
 network-worker = "network_automation.worker:main"
 network-event-consumer = "network_automation.events.consumer:main"
+network-ui-api = "network_automation.api.app:main"
 
 [dependency-groups]
 dev = [

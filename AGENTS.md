@@ -22,8 +22,8 @@
   user authorization. Update docs and tests alongside approved implementation.
 
 <!-- SPECKIT START -->
-Active feature: `specs/005-dhcp-ztp-onboarding/spec.md`; implementation plan is
-`specs/005-dhcp-ztp-onboarding/plan.md`. Read both and `tasks.md` before implementation.
+Active feature: `specs/006-network-control-plane-ui/spec.md`; implementation plan is
+`specs/006-network-control-plane-ui/plan.md`. Read both and `tasks.md` before implementation.
 Feature 003 implementation was approved on 2026-09-09 with separate Temporal running
 conflict and closed reuse policies. Implementation and reference acceptance completed
 on 2026-09-10. Preserve it. Feature 004 implementation was conditionally approved on
@@ -41,4 +41,13 @@ Its virtual identity design uses a deterministic boot-management MAC represented
 Nautobot `Interface.mac_address`, contingent on a future runtime gate. Do not execute T003 or
 later without an owner-authorized artifact and explicit approval; T007 onward additionally
 requires a passing T003-T006 gate and separate implementation approval.
+Feature 006 planning began on 2026-09-13 and implementation was approved on 2026-09-14 with three
+guardrails: live device reads are one on-demand detail operation with a 15-second budget and no
+device polling; API structure exposes no automation mutation; Temporal lists remain visibility-
+first with default 25, maximum 50, concurrency four, overview shallow hydration capped at eight,
+and full activity history only for detail. Implementation completed on 2026-09-14; canonical
+populated-data, live-device, retained-failure, desktop/375-pixel browser, security, cleanup, and
+Features 001-004 regression acceptance completed on 2026-09-15. Preserve Feature 006.
+Preserve the approved Lavish operator-console direction, source ownership, browser-to-API boundary,
+and no-store/no-WebSocket/no-consumer scope.
 <!-- SPECKIT END -->

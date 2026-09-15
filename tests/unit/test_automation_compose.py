@@ -23,6 +23,7 @@ FEATURE_001_SERVICES = {
     "temporal-ui",
 }
 AUTOMATION_SERVICES = {"automation-worker", "event-consumer"}
+UI_SERVICES = {"automation-ui-api", "automation-ui"}
 TEST_ENVIRONMENT = {
     "COMPOSE_PROJECT_NAME": "network-lab-static-test",
     "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
@@ -78,9 +79,15 @@ def test_automation_profile_adds_exactly_two_application_services(
         FEATURE_001_SERVICES
     )
     assert services["temporal-namespace"]["profiles"] == ["init"]
-    assert set(services) == FEATURE_001_SERVICES | AUTOMATION_SERVICES | {
-        "temporal-namespace"
-    }
+    assert {
+        name for name, service in services.items() if service.get("profiles") == ["ui"]
+    } == UI_SERVICES
+    assert set(services) == (
+        FEATURE_001_SERVICES
+        | AUTOMATION_SERVICES
+        | UI_SERVICES
+        | {"temporal-namespace"}
+    )
     assert set(compose_config["volumes"]) == {
         "kafka-data",
         "nautobot-media",
@@ -113,6 +120,110 @@ def test_automation_services_share_one_pinned_application_build(
     assert any("3.12.13" in line for line in from_lines)
     assert "0.11.28" in dockerfile
     assert all(":latest" not in line for line in from_lines)
+
+
+def test_ui_services_have_exactly_one_ui_build_owner(
+    compose_config: dict[str, Any],
+) -> None:
+    services = compose_config["services"]
+    api = services["automation-ui-api"]
+    ui = services["automation-ui"]
+
+    assert api["image"] == services["automation-worker"]["image"] == (
+        "network-automation-lab:0.1.0"
+    )
+    assert "build" not in api
+    assert Path(ui["build"]["context"]).resolve() == REPOSITORY_ROOT
+    assert Path(ui["build"]["dockerfile"]).name == "Dockerfile.ui"
+    assert sum("build" in services[name] for name in UI_SERVICES) == 1
+
+
+def test_ui_runtime_is_loopback_only_read_only_and_stateless(
+    compose_config: dict[str, Any],
+) -> None:
+    services = compose_config["services"]
+    api = services["automation-ui-api"]
+    ui = services["automation-ui"]
+
+    assert api["command"] == ["network-ui-api"]
+    assert api["ports"] == [
+        {
+            "mode": "ingress",
+            "target": 8000,
+            "published": "8001",
+            "protocol": "tcp",
+            "host_ip": "127.0.0.1",
+        }
+    ]
+    assert ui["ports"] == [
+        {
+            "mode": "ingress",
+            "target": 8080,
+            "published": "3000",
+            "protocol": "tcp",
+            "host_ip": "127.0.0.1",
+        }
+    ]
+    assert len(api["volumes"]) == 1
+    artifact_mount = api["volumes"][0]
+    assert artifact_mount["type"] == "bind"
+    assert Path(artifact_mount["source"]).resolve() == REPOSITORY_ROOT / "artifacts"
+    assert artifact_mount["target"] == "/app/artifacts"
+    assert artifact_mount["read_only"] is True
+    assert not ui.get("volumes")
+    assert all("docker.sock" not in str(service) for service in (api, ui))
+    assert set(compose_config["volumes"]) == {
+        "kafka-data",
+        "nautobot-media",
+        "postgres-data",
+    }
+
+
+def test_ui_healthchecks_prove_local_liveness_without_upstream_health(
+    compose_config: dict[str, Any],
+) -> None:
+    services = compose_config["services"]
+    api = services["automation-ui-api"]
+    ui = services["automation-ui"]
+    api_health = " ".join(api["healthcheck"]["test"])
+    ui_health = " ".join(ui["healthcheck"]["test"])
+
+    assert "/healthz" in api_health
+    assert "/api/health" not in api_health
+    assert "127.0.0.1:8000" in api_health
+    assert "127.0.0.1:8080/healthz" in ui_health
+    assert api["depends_on"] == {
+        name: {"condition": "service_started", "required": True}
+        for name in ("kafka", "nautobot", "temporal")
+    }
+    assert ui["depends_on"] == {
+        "automation-ui-api": {"condition": "service_healthy", "required": True}
+    }
+
+
+def test_ui_api_has_bounded_observation_settings(
+    compose_config: dict[str, Any],
+) -> None:
+    environment = compose_config["services"]["automation-ui-api"]["environment"]
+
+    assert environment.items() >= {
+        "LAB_API_OVERVIEW_WORKFLOW_LIMIT": "8",
+        "LAB_API_WORKFLOW_LIMIT": "25",
+        "LAB_API_WORKFLOW_HYDRATION_CONCURRENCY": "4",
+        "LAB_API_LIVE_TIMEOUT_SECONDS": "15",
+        "LAB_API_ARTIFACT_ROOT": "/app/artifacts",
+    }.items()
+    assert environment["LAB_NAUTOBOT_URL"] == "http://nautobot:8080"
+    assert environment["LAB_TEMPORAL_ADDRESS"] == "temporal:7233"
+    assert environment["LAB_KAFKA_BOOTSTRAP_SERVERS"] == "kafka:29092"
+
+
+def test_ui_nginx_uses_same_origin_api_proxy() -> None:
+    nginx_config = (REPOSITORY_ROOT / "ui" / "nginx.conf").read_text(encoding="ascii")
+
+    assert "location /api" in nginx_config
+    assert "proxy_pass http://automation-ui-api:8000" in nginx_config
+    assert "location = /healthz" in nginx_config
 
 
 def test_automation_processes_have_only_required_runtime_access(
@@ -176,3 +287,40 @@ def test_automation_healthchecks_require_fresh_process_heartbeats(
     assert healthcheck["timeout"].endswith("s")
     assert healthcheck["start_period"].endswith("s")
     assert healthcheck["retries"] > 0
+
+
+def test_device_access_override_attaches_api_with_runtime_credentials() -> None:
+    environment = TEST_ENVIRONMENT | {
+        "LAB_DEVICE_USERNAME": "static-device-user",
+        "LAB_DEVICE_PASSWORD": "static-device-password",
+    }
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--file",
+            str(REPOSITORY_ROOT / "compose.yaml"),
+            "--file",
+            str(REPOSITORY_ROOT / "compose.device-access.yaml"),
+            "--profile",
+            "*",
+            "config",
+            "--format",
+            "json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=os.environ | environment,
+    )
+    config = json.loads(result.stdout)
+    api = config["services"]["automation-ui-api"]
+
+    assert set(api["networks"]) == {"default", "network-lab-devices-mgmt"}
+    assert api["environment"]["LAB_DEVICE_USERNAME"] == "static-device-user"
+    assert api["environment"]["LAB_DEVICE_PASSWORD"] == "static-device-password"
+    assert config["networks"]["network-lab-devices-mgmt"].items() >= {
+        "name": "network-lab-devices-mgmt",
+        "external": True,
+    }.items()

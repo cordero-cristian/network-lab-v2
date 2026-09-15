@@ -313,6 +313,61 @@ services:
       retries: 8
     restart: unless-stopped
 
+  automation-ui-api:
+    image: network-automation-lab:0.1.0
+    profiles: ["ui"]
+    environment:
+      <<: *automation-environment
+      LAB_NAUTOBOT_URL: http://nautobot:8080
+      LAB_API_PROBE_TIMEOUT_SECONDS: ${LAB_API_PROBE_TIMEOUT_SECONDS:-3}
+      LAB_API_OVERVIEW_TIMEOUT_SECONDS: ${LAB_API_OVERVIEW_TIMEOUT_SECONDS:-8}
+      LAB_API_OVERVIEW_WORKFLOW_LIMIT: ${LAB_API_OVERVIEW_WORKFLOW_LIMIT:-8}
+      LAB_API_WORKFLOW_LIMIT: ${LAB_API_WORKFLOW_LIMIT:-25}
+      LAB_API_WORKFLOW_HYDRATION_CONCURRENCY: ${LAB_API_WORKFLOW_HYDRATION_CONCURRENCY:-4}
+      LAB_API_LIVE_TIMEOUT_SECONDS: ${LAB_API_LIVE_TIMEOUT_SECONDS:-15}
+      LAB_API_DEVICE_LIMIT: ${LAB_API_DEVICE_LIMIT:-50}
+      LAB_API_ARTIFACT_ROOT: /app/artifacts
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-ui-api
+      NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
+    command: ["network-ui-api"]
+    ports:
+      - "127.0.0.1:${LAB_UI_API_HOST_PORT:-8001}:8000"
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      kafka:
+        condition: service_started
+      nautobot:
+        condition: service_started
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=1).read()"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+
+  automation-ui:
+    image: network-automation-ui:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    profiles: ["ui"]
+    ports:
+      - "127.0.0.1:${LAB_UI_HOST_PORT:-3000}:8080"
+    depends_on:
+      automation-ui-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+
 volumes:
   kafka-data:
   nautobot-media:

@@ -33,6 +33,8 @@ TEST_ENVIRONMENT = {
     "LAB_NAUTOBOT_HOST_PORT": "8000",
     "LAB_TEMPORAL_HOST_PORT": "7233",
     "LAB_TEMPORAL_UI_HOST_PORT": "8080",
+    "LAB_DEVICE_USERNAME": "static-device-user",
+    "LAB_DEVICE_PASSWORD": "static-device-password",
     "NAUTOBOT_DB_PASSWORD": "static-test",
     "NAUTOBOT_SECRET_KEY": "static-test",
     "NAUTOBOT_SUPERUSER_API_TOKEN": "0" * 40,
@@ -125,7 +127,7 @@ def test_base_compose_remains_independent_of_device_topology(
         assert DEVICE_NETWORK not in service.get("networks", {})
 
 
-def test_device_override_only_attaches_worker_to_external_network(
+def test_device_override_only_attaches_read_capable_services_to_external_network(
     base_compose_config: dict[str, Any],
 ) -> None:
     assert DEVICE_COMPOSE_PATH.is_file(), "missing optional device-access override"
@@ -139,7 +141,7 @@ def test_device_override_only_attaches_worker_to_external_network(
         assert service.get("ports") == base_service.get("ports")
         assert service.get("expose") == base_service.get("expose")
         networks = set(service.get("networks", {}))
-        if name == "automation-worker":
+        if name in {"automation-worker", "automation-ui-api"}:
             assert networks == {"default", DEVICE_NETWORK}
         else:
             assert DEVICE_NETWORK not in networks

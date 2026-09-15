@@ -33,6 +33,28 @@ class NautobotDeploymentIntent:
     management_address: IPv4Address
 
 
+@dataclass(frozen=True, slots=True)
+class NautobotInventoryDevice:
+    id: str
+    name: str
+    role: str | None
+    platform: str | None
+    location: str | None
+    management_address: IPv4Address | None
+    status: str | None
+    bgp_neighbors: tuple[IPv4Address, ...] = ()
+    bgp_intent_available: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class NautobotTopologyInterface:
+    device_name: str
+    name: str
+    addresses: tuple[IPv4Address, ...]
+    connected_device: str | None
+    connected_interface: str | None
+
+
 class NautobotClient:
     """Read only the Nautobot objects required for one device intent."""
 
@@ -182,6 +204,84 @@ class NautobotClient:
             management_address=address.ip,
         )
 
+    def list_inventory_devices(self, *, limit: int = 100) -> tuple[NautobotInventoryDevice, ...]:
+        """Return bounded inventory display fields without exposing raw serializers."""
+
+        page = self._get("api/dcim/devices/", params={"limit": min(limit, 100), "depth": 1})
+        results = page.get("results")
+        if not isinstance(results, list):
+            raise NautobotError("Nautobot device page has invalid results")
+        devices: list[NautobotInventoryDevice] = []
+        for value in results[:limit]:
+            device = _mapping(value, "device")
+            bgp_neighbors, bgp_intent_available = _inventory_bgp_neighbors(device)
+            devices.append(
+                NautobotInventoryDevice(
+                    id=_required_text(device.get("id"), "device id"),
+                    name=_required_text(device.get("name"), "device name"),
+                    role=_relation_display(device.get("role")),
+                    platform=_relation_display(device.get("platform")),
+                    location=_relation_display(device.get("location")),
+                    management_address=_optional_ipv4(device.get("primary_ip4")),
+                    status=_relation_display(device.get("status")),
+                    bgp_neighbors=bgp_neighbors,
+                    bgp_intent_available=bgp_intent_available,
+                )
+            )
+        return tuple(sorted(devices, key=lambda item: item.name.casefold()))
+
+    def list_topology_interfaces(self, devices: Sequence[NautobotInventoryDevice]) -> tuple[NautobotTopologyInterface, ...]:
+        """Read only exact interface IP ownership and connected endpoint relationships."""
+
+        names = {device.id: device.name for device in devices}
+        interfaces: list[NautobotTopologyInterface] = []
+        for device in devices:
+            page = self._get(
+                "api/dcim/interfaces/",
+                params={"device_id": device.id, "limit": 100, "depth": 1},
+            )
+            values = page.get("results")
+            if not isinstance(values, list):
+                raise NautobotError("Nautobot interface page has invalid results")
+            for value in values:
+                interface = _mapping(value, "interface")
+                addresses: list[IPv4Address] = []
+                relations = interface.get("ip_addresses", [])
+                if _is_sequence(relations):
+                    for relation_value in relations:
+                        relation = _mapping(relation_value, "IP address relation")
+                        address_value = relation.get("address")
+                        if isinstance(address_value, str):
+                            try:
+                                parsed = ip_interface(address_value)
+                            except ValueError:
+                                continue
+                            if isinstance(parsed, IPv4Interface):
+                                addresses.append(parsed.ip)
+                endpoint = _connected_endpoint(interface)
+                endpoint_device = endpoint.get("device") if endpoint else None
+                endpoint_device_id = (
+                    endpoint_device.get("id") if isinstance(endpoint_device, Mapping) else None
+                )
+                connected_name = names.get(str(endpoint_device_id))
+                if connected_name is None and isinstance(endpoint_device, Mapping):
+                    raw_name = endpoint_device.get("name") or endpoint_device.get("display")
+                    connected_name = raw_name if isinstance(raw_name, str) else None
+                interfaces.append(
+                    NautobotTopologyInterface(
+                        device_name=device.name,
+                        name=_required_text(interface.get("name"), "interface name"),
+                        addresses=tuple(sorted(set(addresses))),
+                        connected_device=connected_name,
+                        connected_interface=(
+                            str(endpoint.get("name"))
+                            if endpoint and isinstance(endpoint.get("name"), str)
+                            else None
+                        ),
+                    )
+                )
+        return tuple(interfaces)
+
 
 def _is_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
@@ -203,6 +303,39 @@ def _optional_display(value: object, label: str) -> str | None:
     if value is None:
         return None
     return _required_text(value, label)
+
+
+def _relation_display(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    relation = _mapping(value, "relation")
+    display = relation.get("display") or relation.get("name") or relation.get("label")
+    return display.strip() if isinstance(display, str) and display.strip() else None
+
+
+def _optional_ipv4(value: object) -> IPv4Address | None:
+    if value is None:
+        return None
+    address = value.get("address") if isinstance(value, Mapping) else value
+    if not isinstance(address, str):
+        return None
+    try:
+        parsed = ip_interface(address)
+    except ValueError:
+        return None
+    return parsed.ip if isinstance(parsed, IPv4Interface) else None
+
+
+def _connected_endpoint(interface: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    value = interface.get("connected_endpoint")
+    if isinstance(value, Mapping):
+        return value
+    values = interface.get("connected_endpoints")
+    if _is_sequence(values) and len(values) == 1 and isinstance(values[0], Mapping):
+        return values[0]
+    return None
 
 
 def _required_bool(value: object, label: str) -> bool:
@@ -227,6 +360,36 @@ def _one_address(interface: Mapping[str, Any]) -> object:
         name = interface.get("name", "<unknown>")
         raise NautobotError(f"interface {name!r} must have exactly one IPv4 address")
     return _mapping(relations[0], "IP address").get("address")
+
+
+def _inventory_bgp_neighbors(
+    device: Mapping[str, Any],
+) -> tuple[tuple[IPv4Address, ...], bool]:
+    try:
+        context = _mapping(
+            device.get("local_config_context_data"), "local config context"
+        )
+        automation = _mapping(
+            context.get("network_automation"), "network_automation context"
+        )
+        bgp = _mapping(automation.get("bgp"), "BGP context")
+        values = bgp.get("neighbors")
+        if not _is_sequence(values):
+            raise NautobotError("BGP neighbors must be a list")
+        return (
+            tuple(
+                IPv4Address(
+                    _required_text(
+                        _mapping(value, "BGP neighbor").get("address"),
+                        "BGP neighbor address",
+                    )
+                )
+                for value in values
+            ),
+            True,
+        )
+    except (NautobotError, ValueError):
+        return (), False
 
 
 def device_intent_from_nautobot(raw: Mapping[str, object]) -> DeviceIntent:

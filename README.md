@@ -7,7 +7,9 @@ configuration artifacts. Feature 003 accepts Kafka render requests and uses Temp
 to durably coordinate that same artifact path. Feature 004 adds an explicit deployment
 request that applies the digest-bound artifact to a test-owned SR Linux target over gNMI
 and independently validates operational state. Nautobot owns network intent, Kafka
-transports events, and Temporal owns durable workflow execution.
+transports events, and Temporal owns durable workflow execution. Feature 006 adds an
+optional read-only operator UI over those accepted sources; it does not render, deploy,
+retry, cancel, publish, or mutate automation state.
 
 ## Services
 
@@ -22,6 +24,8 @@ transports events, and Temporal owns durable workflow execution.
 | Nautobot worker and Beat | Compose network only | Application state in PostgreSQL |
 | Automation worker | Compose network only; profile `automation` | Temporal history and generated host artifacts |
 | Event consumer | Compose network only; profile `automation` | Kafka consumer offsets |
+| Control-plane read API | `http://localhost:8001`; profile `ui` | None; artifacts mounted read-only |
+| Operator UI | `http://localhost:3000`; profile `ui` | None |
 
 Redis is not durable automation state. Temporal owns workflow durability.
 
@@ -40,7 +44,8 @@ Reference acceptance passed on Ubuntu 24.04.4 LTS x86-64. The supporting stack
 was also exercised on macOS ARM64 using Docker Desktop. See `docs/validation.md`.
 Network-device prerequisites are separate in `docs/network-lab.md`.
 
-The default loopback ports 8000, 8080, 9092, and 7233 must be free. Override all
+The default loopback ports 8000, 8080, 9092, and 7233 must be free. Ports 8001 and
+3000 are additionally required when the `ui` profile is enabled. Override all
 matching `LAB_*_HOST_PORT` and host-side URL/address values in `.env` when needed.
 Kafka's host port override automatically controls its advertised host listener.
 If changing the Compose project, keep `COMPOSE_PROJECT_NAME` and
@@ -98,6 +103,55 @@ uv run pytest tests/integration/test_srlinux_deployment.py
 
 Default pytest discovery runs unit tests only and requires no Docker services.
 Integration tests are explicit and fail when infrastructure is unavailable.
+
+## Observe The Control Plane
+
+The operator console is absent from default startup. After the base services are running,
+build the shared automation image once and the UI image, then enable only the optional
+profile:
+
+```sh
+docker compose --profile automation build automation-worker
+docker compose --profile ui build automation-ui
+docker compose --profile ui up -d automation-ui-api automation-ui
+docker compose --profile ui ps
+curl --fail --silent http://127.0.0.1:8001/healthz
+```
+
+`automation-ui-api` reuses `network-automation-lab:0.1.0`; Compose does not own a second
+Python build. `/healthz` proves only that the API process can answer, so it stays healthy
+while an observation source is degraded. Open `http://127.0.0.1:3000`; nginx serves the
+static UI and proxies browser `/api` requests to the API on the Compose network. Both host
+ports bind only to loopback, no Docker socket is mounted, and the UI adds no database,
+cache, queue, event consumer, or durable state.
+
+For a remote lab host, forward both loopback listeners from the workstation:
+
+```sh
+ssh -L 3000:localhost:3000 -L 8001:localhost:8001 root@<lab-host>
+```
+
+The browser polls only read models: overview every 15 seconds, devices/topology and
+device base detail every 30 seconds, workflow/deployment lists every 10 seconds, and a
+running workflow detail every 4 seconds until terminal. Opening device detail may issue
+one explicitly requested live read with a 15-second budget; automatic refreshes never
+repeat that device read. Workflow lists default to 25 and cap at 50, history hydration
+uses concurrency four, and overview hydrates at most eight recent executions.
+
+Temporal's three-day retention can leave older workflows, event/correlation fields,
+artifacts, validation results, and failed outcomes unavailable. Kafka poison records and
+transport coordinates are intentionally not reconstructed. Missing Nautobot cable data
+produces nodes without invented physical links. These are reported as source gaps, not
+zero values or synthetic status.
+
+Optional live device detail requires the existing device-management network and
+runtime-only `LAB_DEVICE_USERNAME` and `LAB_DEVICE_PASSWORD`; follow
+`docs/network-lab.md`. Stop the optional surface without touching shared services or
+volumes:
+
+```sh
+docker compose --profile ui stop automation-ui automation-ui-api
+```
 
 The lifecycle suite automatically creates and destroys only a uniquely named
 Compose project on unused loopback ports:

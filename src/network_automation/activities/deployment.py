@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,15 +23,10 @@ from network_automation.devices.srlinux import (
     DevicePathError,
     DevicePlatformError,
     DeviceResponseError,
-    HOSTNAME_PATH,
-    interface_admin_path,
-    interface_oper_path,
-    ipv4_address_status_path,
-    local_asn_path,
-    neighbor_peer_as_path,
-    neighbor_session_state_path,
-    subinterface_admin_path,
-    subinterface_oper_path,
+)
+from network_automation.devices.validation import (
+    expected_state_from_intent,
+    validation_result as compare_device_state,
 )
 from network_automation.events.models import (
     ArtifactIdentity,
@@ -40,11 +34,7 @@ from network_automation.events.models import (
     DeploymentTarget,
     DeployDeviceConfigRequest,
     DeviceValidationResult,
-    ExpectedBgpNeighbor,
-    ExpectedDeviceState,
-    ExpectedInterface,
     PreparedDeployment,
-    ValidationCheck,
     deployment_workflow_id_for,
 )
 from network_automation.intent.nautobot import NautobotClient, NautobotError
@@ -302,24 +292,7 @@ def prepare_device_deployment(request: DeployDeviceConfigRequest) -> PreparedDep
             gnmi_port=settings.device_gnmi_port,
             tls_mode=settings.device_gnmi_tls_mode,
         )
-        expected_state = ExpectedDeviceState(
-            device_name=request.device_name,
-            loopback_name="system0",
-            loopback_prefix=intent.loopback.ipv4,
-            routed_interfaces=tuple(
-                ExpectedInterface(
-                    name=interface.name,
-                    ipv4_prefix=interface.ipv4,
-                    require_oper_up=True,
-                )
-                for interface in intent.interfaces
-            ),
-            local_asn=intent.bgp.local_asn,
-            bgp_neighbors=tuple(
-                ExpectedBgpNeighbor(address=neighbor.address, remote_asn=neighbor.remote_asn)
-                for neighbor in intent.bgp.neighbors
-            ),
-        )
+        expected_state = expected_state_from_intent(intent)
         result = PreparedDeployment(
             artifact=artifact,
             target=target,
@@ -379,99 +352,12 @@ def deploy_device_artifact(prepared: PreparedDeployment) -> DeploymentResult:
     return result
 
 
-def _check(name: str, expected: str | int | bool, observed: object) -> ValidationCheck:
-    passed = observed == expected and type(observed) is type(expected)
-    return ValidationCheck(
-        name=name,
-        status="passed" if passed else "failed",
-        expected=expected,
-        observed=observed,
-        message=None if passed else "observed device state does not match intended state",
-    )
-
-
-def _validation_result(
+def validation_result(
     prepared: PreparedDeployment,
     observed_state: dict[str, str | int | bool | None],
 ) -> DeviceValidationResult:
+    result = compare_device_state(prepared, observed_state)
     expected = prepared.expected_state
-    checks: list[ValidationCheck] = []
-    checks.append(_check("system.hostname", expected.device_name, observed_state[HOSTNAME_PATH]))
-
-    interfaces = ((expected.loopback_name, expected.loopback_prefix, True),) + tuple(
-        (interface.name, interface.ipv4_prefix, interface.require_oper_up)
-        for interface in expected.routed_interfaces
-    )
-    for name, prefix, require_oper_up in interfaces:
-        checks.append(
-            _check(
-                f"interface.{name}.admin_state",
-                "enable",
-                observed_state[interface_admin_path(name)],
-            )
-        )
-        if require_oper_up:
-            checks.append(
-                _check(
-                    f"interface.{name}.oper_state",
-                    "up",
-                    observed_state[interface_oper_path(name)],
-                )
-            )
-        checks.append(
-            _check(
-                f"subinterface.{name}.0.admin_state",
-                "enable",
-                observed_state[subinterface_admin_path(name)],
-            )
-        )
-        if require_oper_up:
-            checks.append(
-                _check(
-                    f"subinterface.{name}.0.oper_state",
-                    "up",
-                    observed_state[subinterface_oper_path(name)],
-                )
-            )
-        prefix_text = str(prefix)
-        checks.append(
-            _check(
-                f"address.{name}.{prefix_text}.status",
-                "preferred",
-                observed_state[ipv4_address_status_path(name, prefix_text)],
-            )
-        )
-
-    checks.append(
-        _check(
-            "routing.bgp.local_asn",
-            expected.local_asn,
-            observed_state[local_asn_path()],
-        )
-    )
-    for neighbor in expected.bgp_neighbors:
-        address = str(neighbor.address)
-        checks.append(
-            _check(
-                f"routing.bgp.neighbor.{address}.peer_as",
-                neighbor.remote_asn,
-                observed_state[neighbor_peer_as_path(address)],
-            )
-        )
-        checks.append(
-            _check(
-                f"routing.bgp.neighbor.{address}.session_state",
-                "established",
-                observed_state[neighbor_session_state_path(address)],
-            )
-        )
-
-    result = DeviceValidationResult(
-        device_name=expected.device_name,
-        status="passed" if all(check.status == "passed" for check in checks) else "failed",
-        checks=tuple(checks),
-        validated_at=datetime.now(timezone.utc),
-    )
     LOGGER.info(
         "Validated device state workflow_id=%s device_name=%s activity=%s target=%s "
         "status=%s checks=%s",
@@ -505,7 +391,7 @@ def validate_device_state(prepared: PreparedDeployment) -> DeviceValidationResul
     try:
         settings, username, password = _settings()
         observed_state = _client(settings, username, password).read_native_state(prepared)
-        result = _validation_result(prepared, observed_state)
+        result = validation_result(prepared, observed_state)
     except ApplicationError as exc:
         _log_activity_failure(context, exc.type or "internal_error")
         raise
@@ -543,6 +429,11 @@ def validate_device_state(prepared: PreparedDeployment) -> DeviceValidationResul
 
 __all__ = [
     "deploy_device_artifact",
+    "expected_state_from_intent",
     "prepare_device_deployment",
+    "validation_result",
     "validate_device_state",
 ]
+
+# Retained for the accepted Feature 004 unit boundary.
+_validation_result = validation_result

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
@@ -69,6 +70,14 @@ class LabSettings(BaseSettings):
     device_gnmi_port: int = Field(default=57401, ge=1, le=65535)
     device_gnmi_timeout_seconds: int = Field(default=10, ge=1, le=10)
     device_gnmi_tls_mode: Literal["insecure"] = "insecure"
+    api_probe_timeout_seconds: int = Field(default=3, ge=1, le=10)
+    api_overview_timeout_seconds: int = Field(default=8, ge=1, le=15)
+    api_live_timeout_seconds: int = Field(default=15, ge=1, le=15)
+    api_workflow_limit: int = Field(default=25, ge=1, le=50)
+    api_workflow_hydration_concurrency: int = Field(default=4, ge=1, le=4)
+    api_overview_workflow_limit: int = Field(default=8, ge=1, le=8)
+    api_device_limit: int = Field(default=50, ge=1, le=100)
+    api_artifact_root: Path = Path("artifacts")
 
     @field_validator("temporal_address")
     @classmethod

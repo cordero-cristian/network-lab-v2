@@ -1,8 +1,15 @@
 services:
   automation-worker:
     environment:
-      LAB_DEVICE_USERNAME: ${LAB_DEVICE_USERNAME:-}
-      LAB_DEVICE_PASSWORD: ${LAB_DEVICE_PASSWORD:-}
+      LAB_DEVICE_USERNAME: ${LAB_DEVICE_USERNAME:?set LAB_DEVICE_USERNAME for device access}
+      LAB_DEVICE_PASSWORD: ${LAB_DEVICE_PASSWORD:?set LAB_DEVICE_PASSWORD for device access}
+    networks:
+      - default
+      - network-lab-devices-mgmt
+  automation-ui-api:
+    environment:
+      LAB_DEVICE_USERNAME: ${LAB_DEVICE_USERNAME:?set LAB_DEVICE_USERNAME for device access}
+      LAB_DEVICE_PASSWORD: ${LAB_DEVICE_PASSWORD:?set LAB_DEVICE_PASSWORD for device access}
     networks:
       - default
       - network-lab-devices-mgmt
