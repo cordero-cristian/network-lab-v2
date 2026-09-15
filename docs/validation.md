@@ -819,3 +819,63 @@ remain in the approved artifacts: task-level dependency precision beyond the exi
 terminal-detail staleness wording, optional-capability live-read modality, overall-health truth-table
 detail, overview-window terminology, and subjective visual-language wording. Implemented contracts,
 tests, and canonical evidence resolve each operationally; no code or acceptance gap remains.
+
+## Feature 006 Clean-Checkout Closeout (2026-09-15)
+
+The pushed implementation commit `e8255d3eea53ceb60af9b8ee88b282c668a3ac84` was validated again
+from fresh canonical checkout `/root/network-lab-v2-feature006-clean-e8255d3` on the Ubuntu 24.04.4
+x86-64 host. The host had no GitHub credentials, so the checkout was transferred in a complete,
+verified Git bundle after `git ls-remote` confirmed the implementation SHA. It was clean before
+validation. The host also had no Node/npm installation; frontend validation therefore used the
+pinned `node:22.22.0-alpine3.23` image without changing the host toolchain.
+
+| Clean-checkout command or observation | Result |
+| --- | --- |
+| `uv sync --locked` | Passed with CPython 3.12.13 |
+| `uv run pytest -q` | 391 passed in 19.17s; two dependency deprecation warnings |
+| Base Compose validation and `network-lab-check` | Passed; authenticated Nautobot, Kafka, Temporal, and supporting-service boundaries were healthy |
+| `npm ci` in `node:22.22.0-alpine3.23` | 136 packages installed; zero vulnerabilities |
+| Frontend tests, typecheck, and production build in the pinned Node image | 12 files/50 tests passed; typecheck passed; 41 modules transformed |
+| Clean image builds | `automation-worker` and `automation-ui` built successfully |
+| Feature 001 regression | 5 passed in 22.44s |
+| Feature 002 regression | 1 passed in 12.45s |
+| Feature 003 regression | 1 passed in 179.59s |
+| Feature 004 real-device regression | 7 passed in 377.06s |
+| Populated Feature 006 integration test | 2 passed in 15.84s |
+
+The exact-ID fixture created 31 Nautobot objects and exposed two devices, 25 retained workflows,
+16 deployments, two topology nodes, and one reciprocal logical BGP link. The larger workflow and
+deployment totals reflect retained canonical executions rather than fixture leakage. Populated API
+overview completed in 2.034s. A local Brave Chromium session reached only nginx through SSH local
+forwarding and exercised Overview, Devices, Device detail, Workflows, retained failed-workflow
+detail, and topology selection. The browser loaded no external resources, displayed no prohibited
+action controls, and had no page-level horizontal overflow at 1440 pixels or an exact 375-pixel
+viewport. Useful browser timings were 2.278s for overview, 6.607s for the bounded live detail,
+1.976s for devices, 0.816s for workflows, and 0.351s for failed-workflow detail.
+
+The device-detail drill-down was the only approved `live=true` operation. API logs contained exactly
+one `live=true` request and, after the observation refresh interval, exactly one `live=false`
+request; the converged zero-mismatch live result remained visible and no periodic device read
+occurred. A topology-node mouse interaction selected the other device without another live read.
+Browser checks also rendered three shape-matched loading groups under controlled latency, the safe
+initial `Observation unavailable` error at 375 pixels under a temporary intercepted 503 response,
+and the authoritative zero-device empty state at 375 pixels after fixture removal. The API was
+restored after the reversible dependency-failure setup and health was reconfirmed.
+
+The repeated value-based security audit scanned nine populated API responses, two built browser
+assets, and both UI/API log streams against the two available runtime secret values and all existing
+forbidden markers. It found zero secret or forbidden-marker matches. OpenAPI exposed only `GET` and
+`HEAD`; `POST`, `PUT`, `PATCH`, and `DELETE` returned 405 for every aggregate route. Browser resource
+entries had no external origins, and host listeners for this feature remained local at
+`127.0.0.1:8001` and `127.0.0.1:3000`.
+
+Final cleanup deleted all 31 exact fixture IDs, removed both SR Linux containers and
+`network-lab-devices-mgmt`, and restored the base worker/API/UI on only `network-lab_default`.
+Device credential values were empty in the base worker and absent from the API. Nautobot returned
+zero devices and topology returned zero nodes and links. The same 21 named volumes remained, with
+the unchanged sorted-name SHA-256
+`fe03cb33fcf6171b140274f510f020e341e0ddf5563e882773150a25ba5ee793`; no Kafka topic, Temporal
+history, unrelated Nautobot object, supporting service, or Feature 005 state was reset. The final
+`network-lab-check` passed; librdkafka first attempted unavailable IPv6 localhost and then confirmed
+broker metadata over the configured IPv4 listener. The six owner-accepted wording risks above remain
+unchanged and are not implementation or acceptance gaps.
