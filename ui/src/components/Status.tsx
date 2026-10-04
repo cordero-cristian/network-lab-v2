@@ -1,7 +1,7 @@
 import { titleCase } from "../format";
 
-const failed = new Set(["failed", "unavailable", "terminated", "timed_out", "timeout"]);
-const healthy = new Set(["healthy", "passed", "succeeded", "completed"]);
+const failed = new Set(["failed", "unavailable", "terminated", "timed_out", "timeout", "drifted", "mismatch", "unhealthy"]);
+const healthy = new Set(["healthy", "passed", "succeeded", "completed", "in_sync", "match"]);
 const active = new Set(["degraded", "running", "queued", "preparing", "deploying", "validating"]);
 
 export function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {

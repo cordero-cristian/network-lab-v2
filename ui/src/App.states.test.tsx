@@ -59,6 +59,8 @@ describe("frontend screen/state/semantic-responsive matrix", () => {
     view = route(<DeviceDetailPage />, "/devices/f004-leaf01");
     expect(await screen.findByRole("heading", { name: "f004-leaf01" })).toBeInTheDocument();
     expect(document.querySelector(".device-grid")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Configuration Drift" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Operational Health" })).toBeInTheDocument();
     expect(document.querySelector(".deployment-band")).toBeInTheDocument();
     view.unmount();
 
@@ -150,12 +152,13 @@ describe("frontend screen/state/semantic-responsive matrix", () => {
     const detail = {
       ...deviceDetail,
       intent: { ...deviceDetail.intent, data: null },
-      live_state: { availability: { ...deviceDetail.live_state.availability, status: "unavailable", message: "Live state unavailable" }, data: null },
+      configuration_drift: { ...deviceDetail.configuration_drift, status: "unavailable", result: null, sources: { ...deviceDetail.configuration_drift.sources, device: { ...deviceDetail.configuration_drift.sources.device, status: "unavailable", message: "Device read unavailable" } } },
+      operational_health: { ...deviceDetail.operational_health, status: "unavailable", result: null, sources: { ...deviceDetail.operational_health.sources, device: { ...deviceDetail.operational_health.sources.device, status: "unavailable", message: "Device read unavailable" } } },
     };
     vi.spyOn(globalThis, "fetch").mockResolvedValue(json(detail));
     route(<DeviceDetailPage />, "/devices/f004-leaf01");
     expect(await screen.findByText("No records returned")).toBeInTheDocument();
-    expect(screen.getByText("Observations unavailable")).toBeInTheDocument();
+    expect(screen.getAllByText("Observations unavailable")).toHaveLength(2);
     expect(screen.getByText("Artifact available")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /deploy-device-config/i })).toHaveAttribute("href", expect.stringContaining("/workflows/"));
   });

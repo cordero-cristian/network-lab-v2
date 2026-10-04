@@ -20,12 +20,19 @@ describe("getJson", () => {
   it.each([
     ["/api/workflows", { ...workflows, items: [null] }],
     ["/api/devices", { ...devices, items: [{ name: "incomplete" }] }],
-    ["/api/devices/f004-leaf01", { summary: null, intent: {}, latest_artifact: {}, latest_deployment: {}, historical_validation: {}, live_state: {} }],
-    ["/api/devices/f004-leaf01", { ...deviceDetail, live_state: { ...deviceDetail.live_state, data: { ...deviceDetail.live_state.data, hostname: { ...deviceDetail.live_state.data!.hostname, expected: { unsafe: true } } } } }],
+    ["/api/devices/f004-leaf01", { summary: null, intent: {}, latest_artifact: {}, latest_deployment: {}, historical_validation: {}, configuration_drift: {}, operational_health: {} }],
+    ["/api/devices/f004-leaf01", { ...deviceDetail, configuration_drift: { ...deviceDetail.configuration_drift, result: { ...deviceDetail.configuration_drift.result, checks: [{ ...deviceDetail.configuration_drift.result!.checks[0], expected: { unsafe: true } }] } } }],
+    ["/api/devices/f004-leaf01", { ...deviceDetail, live_state: {}, configuration_drift: deviceDetail.configuration_drift, operational_health: deviceDetail.operational_health }],
+    ["/api/devices/f004-leaf01", { ...deviceDetail, operational_health: { ...deviceDetail.operational_health, observed_at: "2026-09-14T14:32:16Z" } }],
     ["/api/deployments", { items: [null], count: 1, observed_at: devices.observed_at, availability: devices.availability }],
   ])("rejects malformed nested success responses from %s", async (path, body) => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
     await expect(getJson(path)).rejects.toEqual(expect.objectContaining({ code: "internal_error", message: "The API returned an invalid response." }));
+  });
+
+  it("accepts separate source-aware drift and health observations", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(deviceDetail), { status: 200 }));
+    await expect(getJson("/api/devices/f004-leaf01?live=true")).resolves.toEqual(deviceDetail);
   });
 
   it("aborts when the caller is disposed", async () => {

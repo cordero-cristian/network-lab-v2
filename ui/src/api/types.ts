@@ -1,5 +1,5 @@
 export type AvailabilityStatus = "healthy" | "degraded" | "unavailable" | "unknown";
-export type DisplayStatus = AvailabilityStatus | "failed" | "passed" | "running" | "completed" | "canceled" | "cancelled" | "terminated" | "timed_out" | "timeout" | "succeeded" | "queued" | "preparing" | "deploying" | "validating" | "skipped" | "not_reached";
+export type DisplayStatus = AvailabilityStatus | "failed" | "passed" | "running" | "completed" | "canceled" | "cancelled" | "terminated" | "timed_out" | "timeout" | "succeeded" | "queued" | "preparing" | "deploying" | "validating" | "skipped" | "not_reached" | "in_sync" | "drifted" | "match" | "mismatch" | "unhealthy";
 
 export interface SourceAvailability {
   source: string;
@@ -131,21 +131,70 @@ export interface IntendedStateSummary {
   bgp_neighbors: IntendedNeighbor[];
 }
 
+export type SafeScalar = string | number | boolean;
+
+export interface ConfigurationCheck {
+  key: string;
+  category: "hostname" | "interface_admin" | "subinterface_admin" | "address_presence" | "bgp_local_asn" | "bgp_peer_as";
+  status: "match" | "mismatch";
+  expected: SafeScalar;
+  observed: SafeScalar | null;
+  message: string | null;
+}
+
+export interface OperationalHealthCheck {
+  key: string;
+  category: "interface_oper" | "subinterface_oper" | "address_readiness" | "bgp_session";
+  status: "healthy" | "unhealthy" | "unavailable";
+  expected: SafeScalar;
+  observed: SafeScalar | null;
+  message: string | null;
+}
+
+export interface ConfigurationDriftResult {
+  device_name: string;
+  status: "in_sync" | "drifted";
+  checks: ConfigurationCheck[];
+  matches: number;
+  mismatches: number;
+  observed_at: string;
+}
+
+export interface OperationalHealthResult {
+  device_name: string;
+  status: "healthy" | "degraded" | "unavailable";
+  checks: OperationalHealthCheck[];
+  healthy_count: number;
+  unhealthy_count: number;
+  unavailable_count: number;
+  observed_at: string;
+}
+
+export interface ComparisonSources {
+  intent: SourceAvailability;
+  device: SourceAvailability;
+}
+
+export interface ConfigurationDriftObservation {
+  status: "in_sync" | "drifted" | "unavailable";
+  sources: ComparisonSources;
+  result: ConfigurationDriftResult | null;
+  observed_at: string;
+}
+
+export interface OperationalHealthObservation {
+  status: "healthy" | "degraded" | "unavailable";
+  sources: ComparisonSources;
+  result: OperationalHealthResult | null;
+  observed_at: string;
+}
+
 export interface ValidationCheck {
   name: string;
   status: "passed" | "failed";
   expected: string | number | boolean;
   observed: string | number | boolean | null;
   message: string | null;
-}
-
-export interface LiveStateSummary {
-  status: "passed" | "failed" | "unavailable";
-  hostname: ValidationCheck | null;
-  interfaces: ValidationCheck[];
-  bgp: ValidationCheck[];
-  mismatch_count: number;
-  validated_at: string | null;
 }
 
 export interface Envelope<T> { availability: SourceAvailability; data: T | null }
@@ -155,7 +204,8 @@ export interface DeviceDetail {
   latest_artifact: Envelope<ArtifactSummary>;
   latest_deployment: Envelope<DeploymentSummary>;
   historical_validation: Envelope<ValidationSummary>;
-  live_state: Envelope<LiveStateSummary>;
+  configuration_drift: ConfigurationDriftObservation;
+  operational_health: OperationalHealthObservation;
 }
 
 export interface ExecutionStage {

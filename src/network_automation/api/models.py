@@ -8,7 +8,20 @@ from pathlib import PurePosixPath
 from typing import Annotated, Generic, Literal, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
+
+from network_automation.devices.comparison import (
+    ConfigurationDriftResult,
+    OperationalHealthResult,
+)
 
 SafeText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
@@ -147,21 +160,61 @@ class IntendedStateSummary(ReadModel):
     bgp_neighbors: tuple[IntendedBgpNeighbor, ...]
 
 
-class SafeValidationCheck(ReadModel):
-    name: Name
-    status: Literal["passed", "failed"]
-    expected: str | int | bool
-    observed: str | int | bool | None
-    message: SafeText | None = None
+class ComparisonSources(ReadModel):
+    intent: SourceAvailability
+    device: SourceAvailability
+
+    @model_validator(mode="after")
+    def require_source_ownership(self) -> ComparisonSources:
+        if self.intent.source != "nautobot" or self.device.source != "device":
+            raise ValueError("comparison sources do not match their owners")
+        return self
 
 
-class LiveStateSummary(UtcModel):
-    status: Literal["passed", "failed", "unavailable"]
-    hostname: SafeValidationCheck | None = None
-    interfaces: tuple[SafeValidationCheck, ...] = ()
-    bgp: tuple[SafeValidationCheck, ...] = ()
-    mismatch_count: int = Field(ge=0, le=64)
-    validated_at: datetime | None = None
+class ConfigurationDriftObservation(UtcModel):
+    status: Literal["in_sync", "drifted", "unavailable"]
+    sources: ComparisonSources
+    result: ConfigurationDriftResult | None
+    observed_at: datetime
+
+    @model_validator(mode="after")
+    def require_consistent_result(self) -> ConfigurationDriftObservation:
+        if self.status == "unavailable":
+            if self.result is not None:
+                raise ValueError("an unavailable configuration observation cannot contain a result")
+            if self.sources.intent.status == "healthy" and self.sources.device.status == "healthy":
+                raise ValueError("an unavailable configuration observation requires an unavailable source")
+            return self
+        if self.result is None or self.result.status != self.status:
+            raise ValueError("configuration observation status must match its result")
+        if self.result.observed_at != self.observed_at:
+            raise ValueError("configuration observation timestamps must match")
+        if self.sources.intent.status != "healthy" or self.sources.device.status != "healthy":
+            raise ValueError("a configuration result requires both sources")
+        return self
+
+
+class OperationalHealthObservation(UtcModel):
+    status: Literal["healthy", "degraded", "unavailable"]
+    sources: ComparisonSources
+    result: OperationalHealthResult | None
+    observed_at: datetime
+
+    @model_validator(mode="after")
+    def require_consistent_result(self) -> OperationalHealthObservation:
+        if self.result is None:
+            if self.status != "unavailable":
+                raise ValueError("a source-level unavailable observation cannot contain a health status")
+            if self.sources.intent.status == "healthy" and self.sources.device.status == "healthy":
+                raise ValueError("an unavailable operational observation requires an unavailable source")
+            return self
+        if self.result.status != self.status:
+            raise ValueError("operational observation status must match its result")
+        if self.result.observed_at != self.observed_at:
+            raise ValueError("operational observation timestamps must match")
+        if self.sources.intent.status != "healthy" or self.sources.device.status != "healthy":
+            raise ValueError("an operational result requires both sources")
+        return self
 
 
 class DeviceDetail(ReadModel):
@@ -170,7 +223,20 @@ class DeviceDetail(ReadModel):
     latest_artifact: AvailabilityEnvelope[ArtifactSummary]
     latest_deployment: AvailabilityEnvelope[DeploymentSummary]
     historical_validation: AvailabilityEnvelope[ValidationSummary]
-    live_state: AvailabilityEnvelope[LiveStateSummary]
+    configuration_drift: ConfigurationDriftObservation
+    operational_health: OperationalHealthObservation
+
+    @model_validator(mode="after")
+    def require_one_comparison_observation(self) -> DeviceDetail:
+        if self.configuration_drift.observed_at != self.operational_health.observed_at:
+            raise ValueError("comparison observation timestamps must match")
+        for result in (
+            self.configuration_drift.result,
+            self.operational_health.result,
+        ):
+            if result is not None and result.device_name != self.summary.name:
+                raise ValueError("comparison device must match device detail")
+        return self
 
 
 class WorkflowSummary(UtcModel):

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getJson } from "../api/client";
-import type { DeviceDetail, Envelope, LiveStateSummary, SourceAvailability, ValidationCheck } from "../api/types";
+import type { ComparisonSources, ConfigurationCheck, ConfigurationDriftObservation, DeviceDetail, OperationalHealthCheck, OperationalHealthObservation, SourceAvailability } from "../api/types";
 import { formatDuration, formatTime, shortId, titleCase, valueText } from "../format";
 import { AvailabilityBanner, EmptyState, Panel, RouteError, SkeletonRows, StaleBanner, UnavailableState } from "../components/AsyncSection";
 import { Status } from "../components/Status";
@@ -35,8 +35,18 @@ function useDeviceDetail(deviceName: string): DetailState {
       try {
         const updated = await getJson<DeviceDetail>(`${path}?live=false`, controller.signal);
         if (!disposed) {
-          const liveState = liveFailure ? failedLiveState(updated, liveFailure) : null;
-          setState((previous) => ({ data: { ...updated, live_state: liveState ?? previous.data?.live_state ?? updated.live_state }, error: null, loading: false, stale: false, staleReason: null }));
+          const failed = liveFailure ? failedComparison(updated, liveFailure) : null;
+          setState((previous) => ({
+            data: {
+              ...updated,
+              configuration_drift: failed?.configuration_drift ?? previous.data?.configuration_drift ?? updated.configuration_drift,
+              operational_health: failed?.operational_health ?? previous.data?.operational_health ?? updated.operational_health,
+            },
+            error: null,
+            loading: false,
+            stale: false,
+            staleReason: null,
+          }));
           scheduleStale(updated.summary.observed_at);
         }
       } catch (error) {
@@ -77,17 +87,26 @@ function useDeviceDetail(deviceName: string): DetailState {
   return state;
 }
 
-function failedLiveState(detail: DeviceDetail, error: Error): DeviceDetail["live_state"] {
-  return {
-    availability: {
+function failedComparison(detail: DeviceDetail, error: Error): Pick<DeviceDetail, "configuration_drift" | "operational_health"> {
+  const observedAt = detail.summary.observed_at;
+  const device: SourceAvailability = {
       source: "device",
       status: "unavailable",
-      observed_at: detail.summary.observed_at,
+      observed_at: observedAt,
       duration_ms: null,
       code: "unreachable",
-      message: error.message || "Live state request failed; base observations were retained.",
-    },
-    data: null,
+      message: error.message || "Current comparison request failed; base observations were retained.",
+  };
+  const unavailable = <T extends ConfigurationDriftObservation | OperationalHealthObservation>(observation: T): T => ({
+    ...observation,
+    status: "unavailable",
+    sources: { intent: observation.sources.intent, device },
+    result: null,
+    observed_at: observedAt,
+  }) as T;
+  return {
+    configuration_drift: unavailable(detail.configuration_drift),
+    operational_health: unavailable(detail.operational_health),
   };
 }
 
@@ -103,13 +122,14 @@ export function DeviceDetailPage() {
     {state.stale && <StaleBanner observedAt={detail.summary.observed_at} reason={state.staleReason} />}
     <div className="device-grid">
       <Panel title="Intended state" meta={`Nautobot · ${formatTime(detail.intent.availability.observed_at)}`}><AvailabilityBanner availability={detail.intent.availability} />{detail.intent.data ? <IntentRows intent={detail.intent.data} /> : <MissingSection availability={detail.intent.availability} source="Nautobot" />}</Panel>
-      <Panel title="Live state" meta={`One on-demand read · ${formatTime(detail.live_state.data?.validated_at ?? detail.live_state.availability.observed_at)}`}><AvailabilityBanner availability={detail.live_state.availability} />{detail.live_state.data ? <LiveRows live={detail.live_state} /> : <MissingSection availability={detail.live_state.availability} source="Device validation">Intent and retained history remain available. No automatic device retry will occur.</MissingSection>}</Panel>
+      <ComparisonPanel title="Configuration Drift" observation={detail.configuration_drift} kind="configuration" />
+      <ComparisonPanel title="Operational Health" observation={detail.operational_health} kind="operational" />
     </div>
     <section className="deployment-band" aria-label="Latest deployment evidence">
       <EvidenceCell label="Latest deployment" availability={detail.latest_deployment.availability}>{deployment ? <Link className="text-link mono" to={`/workflows/${encodeURIComponent(deployment.workflow_id)}?run_id=${encodeURIComponent(deployment.run_id)}`} title={deployment.workflow_id}>{shortId(deployment.workflow_id, 28)}</Link> : "No retained deployment"}</EvidenceCell>
       <EvidenceCell label="Artifact" availability={detail.latest_artifact.availability}>{detail.latest_artifact.data ? <><span className="mono" title={detail.latest_artifact.data.relative_path}>{detail.latest_artifact.data.relative_path}</span><small>{detail.latest_artifact.data.sha256 ? `sha256 ${shortId(detail.latest_artifact.data.sha256, 16)}` : "Digest unavailable"} · {detail.latest_artifact.data.byte_count ?? "?"} bytes</small><Status value={detail.latest_artifact.data.available ? "healthy" : "unavailable"} label={detail.latest_artifact.data.available ? "Artifact available" : "Artifact missing"} compact /></> : "Metadata unavailable"}</EvidenceCell>
       <EvidenceCell label="Completed" availability={detail.latest_deployment.availability}>{deployment ? <>{formatTime(deployment.completed_at ?? deployment.deployed_at)}<small>{formatDuration(deployment.duration_ms)}</small></> : "Not available"}</EvidenceCell>
-      <EvidenceCell label="Validation" availability={detail.historical_validation.availability}><Status value={detail.historical_validation.data?.status ?? detail.historical_validation.availability.status} compact /></EvidenceCell>
+      <EvidenceCell label="Historical Validation" availability={detail.historical_validation.availability}><Status value={detail.historical_validation.data?.status ?? detail.historical_validation.availability.status} compact /></EvidenceCell>
     </section>
   </>;
 }
@@ -123,9 +143,43 @@ function IntentRows({ intent }: { intent: NonNullable<DeviceDetail["intent"]["da
   return <div className="state-list"><StateRow label="Hostname" value={intent.hostname} tag="intended" /><StateRow label="Loopback" value={intent.loopback} tag="intended" />{intent.routed_interfaces.map((item) => <StateRow key={item.name} label={item.name} value={item.ipv4 ?? item.address ?? item.description} tag="routed" />)}<StateRow label="Local ASN" value={intent.bgp_local_asn} tag="BGP" />{intent.bgp_neighbors.map((neighbor) => <StateRow key={neighbor.address} label="Neighbor" value={`${neighbor.address} · AS ${neighbor.remote_asn}`} tag="BGP" />)}</div>;
 }
 
-function checkValue(check: ValidationCheck): string { return valueText(check.observed); }
-function LiveRows({ live }: { live: Envelope<LiveStateSummary> }) {
-  const data = live.data!; const checks = [data.hostname, ...data.interfaces, ...data.bgp].filter((item): item is ValidationCheck => item != null);
-  return <><div className="live-summary"><Status value={data.status} compact /><span>{data.mismatch_count} existing {data.mismatch_count === 1 ? "mismatch" : "mismatches"}</span></div><div className="validation-list">{checks.map((check, index) => <div className={`validation-row${check.status === "failed" ? " validation-row--failed" : ""}`} key={`${check.name}:${index}`}><div className="validation-row__head"><strong className="mono">{check.name}</strong><span>{check.status === "failed" ? "Mismatch" : "Match"}</span></div><dl><div><dt>Expected</dt><dd className="mono">{valueText(check.expected)}</dd></div><div><dt>Observed</dt><dd className="mono">{checkValue(check)}</dd></div></dl>{check.message && <p>{check.message}</p>}</div>)}</div></>;
+type CurrentObservation = ConfigurationDriftObservation | OperationalHealthObservation;
+type CurrentCheck = ConfigurationCheck | OperationalHealthCheck;
+
+function ComparisonPanel({ title, observation, kind }: { title: string; observation: CurrentObservation; kind: "configuration" | "operational" }) {
+  const result = observation.result;
+  const unavailableMessage = observation.sources.device.message ?? observation.sources.intent.message ?? "No current comparison was requested. Intent and retained history remain available; no automatic device retry will occur.";
+  return <Panel title={title} meta={`One observation · ${formatTime(observation.observed_at)}`}>
+    <div className="comparison-summary"><Status value={observation.status} label={titleCase(observation.status)} compact /><span>{result ? resultCounts(result) : "No conclusion"}</span></div>
+    <SourceEvidence sources={observation.sources} />
+    {result ? <CheckRows checks={result.checks} /> : <UnavailableState source={kind === "configuration" ? "Configuration comparison" : "Operational observation"} message={unavailableMessage} />}
+  </Panel>;
+}
+
+function resultCounts(result: NonNullable<CurrentObservation["result"]>): string {
+  if ("matches" in result) return `${result.matches} ${result.matches === 1 ? "match" : "matches"} · ${result.mismatches} ${result.mismatches === 1 ? "mismatch" : "mismatches"}`;
+  return `${result.healthy_count} healthy · ${result.unhealthy_count} unhealthy · ${result.unavailable_count} unavailable`;
+}
+
+function SourceEvidence({ sources }: { sources: ComparisonSources }) {
+  return <dl className="comparison-sources">
+    <SourceRow label="Nautobot intent" availability={sources.intent} />
+    <SourceRow label="Device read" availability={sources.device} />
+  </dl>;
+}
+
+function SourceRow({ label, availability }: { label: string; availability: SourceAvailability }) {
+  return <div><dt>{label}</dt><dd><Status value={availability.status} compact /><small>{formatTime(availability.observed_at)}</small>{availability.message && <small>{availability.message}</small>}</dd></div>;
+}
+
+function CheckRows({ checks }: { checks: CurrentCheck[] }) {
+  return <div className="validation-list">{checks.map((check) => {
+    const failed = check.status === "mismatch" || check.status === "unhealthy" || check.status === "unavailable";
+    return <div className={`validation-row${failed ? " validation-row--failed" : ""}`} key={check.key}>
+      <div className="validation-row__head"><strong className="mono">{check.key}</strong><Status value={check.status} compact /></div>
+      <dl><div><dt>Expected</dt><dd className="mono">{valueText(check.expected)}</dd></div><div><dt>Observed</dt><dd className="mono">{valueText(check.observed)}</dd></div></dl>
+      {check.message && <p>{check.message}</p>}
+    </div>;
+  })}</div>;
 }
 function StateRow({ label, value, tag, failed = false }: { label: string; value: unknown; tag: string; failed?: boolean }) { return <div className={`state-row${failed ? " state-row--failed" : ""}`}><span>{label}</span><strong className="mono">{valueText(value)}</strong><small>{tag}</small></div>; }

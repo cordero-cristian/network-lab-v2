@@ -50,6 +50,13 @@ def test_real_control_plane_reads_and_same_origin_proxy() -> None:
             device_name = devices["items"][0]["name"]
             detail = _get(client, API_URL, f"/api/devices/{device_name}?live=false")
             assert detail["summary"]["name"] == device_name
+            assert "live_state" not in detail
+            assert detail["configuration_drift"]["status"] == "unavailable"
+            assert detail["operational_health"]["status"] == "unavailable"
+            assert detail["configuration_drift"]["result"] is None
+            assert detail["operational_health"]["result"] is None
+            assert detail["configuration_drift"]["sources"]["device"]["code"] == "not_configured"
+            assert detail["configuration_drift"]["observed_at"] == detail["operational_health"]["observed_at"]
 
         if workflows["items"]:
             workflow = workflows["items"][0]

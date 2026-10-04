@@ -22,8 +22,9 @@
   user authorization. Update docs and tests alongside approved implementation.
 
 <!-- SPECKIT START -->
-Active feature: `specs/006-network-control-plane-ui/spec.md`; implementation plan is
-`specs/006-network-control-plane-ui/plan.md`. Read both and `tasks.md` before implementation.
+Active feature: `specs/007-read-only-drift-compliance/spec.md`; implementation plan is
+`specs/007-read-only-drift-compliance/plan.md`. Feature 007 implementation and canonical acceptance
+completed on 2026-09-23. Preserve its expected-only, read-only comparison behavior.
 Feature 003 implementation was approved on 2026-09-09 with separate Temporal running
 conflict and closed reuse policies. Implementation and reference acceptance completed
 on 2026-09-10. Preserve it. Feature 004 implementation was conditionally approved on
@@ -50,4 +51,12 @@ populated-data, live-device, retained-failure, desktop/375-pixel browser, securi
 Features 001-004 regression acceptance completed on 2026-09-15. Preserve Feature 006.
 Preserve the approved Lavish operator-console direction, source ownership, browser-to-API boundary,
 and no-store/no-WebSocket/no-consumer scope.
+Feature 007 planning completed on 2026-09-22. Its implementation derives expected state only from
+Nautobot/Feature 002 models, reuses one Feature 004 structured read, and keeps configuration drift
+separate from operational health. BGP-down and other operational failures are not drift when
+configured values match. V1 does not inspect unexpected extra configuration, persist results,
+poll devices, remediate, or add a generic policy/compliance framework. Implementation was separately
+approved on 2026-09-22; unit, integration, canonical Nautobot 3.2.5/SR Linux, desktop/375-pixel
+browser, security, cleanup, and Features 001-004 plus Feature 006 regression acceptance completed
+on 2026-09-23. Preserve Feature 007.
 <!-- SPECKIT END -->

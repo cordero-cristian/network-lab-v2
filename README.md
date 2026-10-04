@@ -9,7 +9,9 @@ request that applies the digest-bound artifact to a test-owned SR Linux target o
 and independently validates operational state. Nautobot owns network intent, Kafka
 transports events, and Temporal owns durable workflow execution. Feature 006 adds an
 optional read-only operator UI over those accepted sources; it does not render, deploy,
-retry, cancel, publish, or mutate automation state.
+retry, cancel, publish, or mutate automation state. Feature 007 adds transient, expected-only
+configuration-drift and operational-health results to device detail while preserving one
+explicit live read and keeping operational failures separate from configuration drift.
 
 ## Services
 
@@ -321,12 +323,16 @@ which are disposable already. Never use a global Docker prune for lab recovery.
 
 ## Scope And Specifications
 
-Feature 004 extends the same package, consumer, workflow class, worker, publisher, and
-request CLI with three deployment events and three external activities. It adds one concrete
-SR Linux boundary and a separately managed two-node topology. It adds no Nautobot event
-producer, generic device hierarchy, new worker/service/API, rollback, DHCP/ZTP, discovery,
-Kubernetes, cloud orchestration, or production security architecture.
-Feature artifacts are under `specs/`; permanent agent instructions are in `AGENTS.md`.
+Features 001-004, 006, and 007 are implemented and canonically accepted. Feature 005 remains
+deferred and blocked on access to an owner-authorized genuine bootable SR Linux runtime; its
+DHCP/ZTP work must not resume against the existing container. Feature 007 is the current
+completed milestone and remains read-only: Nautobot supplies intent, one on-demand device read
+supplies transient evidence, and no persistence, polling, remediation, or policy framework is
+introduced.
+
+Feature artifacts and exact scope boundaries are under `specs/`; permanent agent instructions
+are in `AGENTS.md`.
 
 Spec Kit 0.9.5 initialized OpenCode commands in `.opencode/commands/` and Codex
-skills in `.agents/skills/`. The active branch is `004-srlinux-deployment-validation`.
+skills in `.agents/skills/`. The current completed milestone is
+`007-read-only-drift-compliance`.

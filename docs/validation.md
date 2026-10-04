@@ -938,3 +938,111 @@ and `network-lab-devices-mgmt`. The optional UI/API were stopped, and the base a
 worker was restored without device credentials. The retained reciprocal cable and two
 Nautobot devices remain as migrated data. Supporting services, including Nautobot
 3.2.5, were left running and healthy for inspection; no commit or push was made.
+
+## Feature 007 Read-only Drift And Compliance Detection
+
+### Pre-implementation Baseline (2026-09-22)
+
+Baseline validation ran on macOS with CPython 3.12.13 before Feature 007 source or test
+changes. The repository had unrelated in-progress Nautobot 3.2.5 migration changes; these
+were preserved. No Feature 007 comparison module, split API observations, or split UI panels
+existed at baseline.
+
+| Command | Result |
+| --- | --- |
+| `uv run pytest` | Passed, 394 tests in 11.68s; one Starlette dependency deprecation warning |
+| `npm --prefix ui test -- --run` | Passed, 12 files and 50 tests in 2.73s |
+
+### Local Implementation Validation (2026-09-22)
+
+Implementation added one pure `devices/comparison.py` domain module, replaced the internal
+`live_state` API/browser contract with separate source-aware configuration-drift and
+operational-health observations, and updated the existing device-detail presentation. Feature 004
+`devices/validation.py`, `devices/srlinux.py`, workflow behavior, and deferred Feature 005 were not
+changed.
+
+| Command / check | Result |
+| --- | --- |
+| Test-first comparison collection | Failed as expected with `ModuleNotFoundError` before `comparison.py` existed |
+| Focused comparison tests | Passed, 46 tests after routed-interface coverage was added |
+| `uv run pytest` | Passed initially with 449 tests; the final projection-failure regression brought the suite to 450 passing tests in 10.89s, with one dependency deprecation warning |
+| `npm --prefix ui test -- --run` | Passed, 12 files and 56 tests in 2.72s |
+| `npm --prefix ui run build` | Passed; 41 modules transformed |
+| `uv run python -m compileall -q src tests` | Passed |
+| `uv build` | Passed; sdist and wheel built |
+| `git diff --check` | Passed |
+
+The tests independently cover every supported configuration and operational leaf, exact scalar
+typing, atomic malformed-leaf failure, deterministic keys/counts, expected-only scope, source and
+timestamp invariants, one read for successful `live=true`, zero reads for `live=false` or unavailable
+intent, and zero automatic retry after success, timeout, authentication failure, malformed response,
+or malformed scalar evidence. BGP session state, interface operational state, and address readiness
+never enter configuration aggregation.
+
+### Canonical Ubuntu Runtime (2026-09-23)
+
+Canonical validation ran only on `root@24.199.95.39` in isolated source directory
+`/root/network-lab-v2-feature007-acceptance`. The host was Ubuntu 24.04.4 x86-64 with CPython
+3.12.13, Nautobot 3.2.5, netlab 26.08, containerlab 0.79.0, and Nokia SR Linux 26.7.2-519.
+The local macOS workstation was used only for unit/build work and as the browser endpoint through
+the owner-provided `3002 -> 3000` and `8003 -> 8001` SSH forwards.
+
+| Canonical command / check | Result |
+| --- | --- |
+| `/root/.local/bin/uv --directory ... sync --locked` | Passed; 38 runtime/dev packages installed in the isolated environment |
+| VM `uv run pytest` | Passed, 449 tests in 19.27s; two dependency deprecation warnings |
+| Frontend tests in pinned `node:22.22.0-alpine3.23` | Passed, 12 files and 56 tests in 44.21s; zero npm vulnerabilities |
+| Frontend production build in pinned Node image | Passed; 41 modules transformed in 1.09s |
+| Base and UI Compose configuration | Passed |
+| Features 001 regression, `test_services.py` | Passed, 5 tests in 43.11s |
+| Feature 002 regression, `test_nautobot_render.py` | Passed, 1 test in 12.99s |
+| Feature 003 regression, `test_event_driven_render.py` | Passed, 1 test in 273.21s |
+| Initial Feature 004 invocation | Stopped at preflight, 7 errors in 3.37s; Feature 003 had recreated the worker without its optional device network, so no deployment test or device mutation began |
+| Corrected Feature 004 regression, `test_srlinux_deployment.py` | Passed, 7 tests in 399.37s after recreating the worker with the accepted device-access override |
+| Feature 006/007 control-plane integration | Passed, 2 tests in 23.76s |
+| Feature 007 real comparison acceptance | Passed, 1 test in 28.85s with exact fixture-ID cleanup |
+| Final `network-lab-check` | Passed every supporting service, initializer, authenticated Nautobot API, Kafka, Temporal RPC/namespace, and Temporal UI boundary |
+
+The dedicated Feature 007 acceptance used the accepted Feature 004 fixture only to restore
+authoritative matching Nautobot intent after the Feature 004 regression had configured the two real
+devices. It made one explicit `live=true` detail request, observed configuration `in_sync` with zero
+mismatches and a separately present operational result, then made a `live=false` request that
+returned `not_configured` with null results. It deleted and confirmed absent every test-owned
+Nautobot object. No intent or device value was changed to manufacture drift.
+
+Retained migration intent then supplied a naturally occurring hostname-only drift observation at
+`2026-09-23T02:27:53.169689Z`: configuration reported `drifted` with eight matches and one hostname
+mismatch (`migration-leaf01` expected, `f004-leaf01` observed), while all seven operational checks
+were healthy. This proved on real sources that configuration drift and operational health remain
+independent. Both results and both source records shared the same timestamp.
+
+### Browser, Security, And Cleanup
+
+The canonical production UI was inspected with Brave Chromium through the approved SSH forwards.
+At 1440 by 1000 and exact 375 by 900 CSS pixels, the page had equal document/client widths and no
+horizontal overflow. Intended State, Configuration Drift, Operational Health, source evidence,
+per-check expected/observed values, and Historical Validation were simultaneously identifiable.
+The natural drift/healthy detail became useful in approximately 8.1 seconds. Controlled production-
+build response fixtures identified drift-only in 189 ms, health-only in 156 ms, both in 155 ms, and
+unavailable in 157 ms at 375 pixels. All were below 10 seconds, had no overflow, and exposed no
+deploy, remediate, edit, acknowledge, approve, or waiver control. Existing frontend tests also
+passed keyboard-navigation and non-color status-cue assertions.
+
+API/UI body and log inspection found no configured secret, authorization header, traceback, raw
+configuration marker, artifact path, or external browser origin. Real route tests returned 405 for
+mutation methods. The final graph refresh produced 2,802 nodes, 6,294 edges, and 180 communities; review
+showed the comparator connected only to accepted expected-state/path, API, UI, and test boundaries,
+with no datastore, policy engine, workflow, consumer, telemetry, or remediation layer.
+
+Cleanup removed both SR Linux containers, `network-lab-devices-mgmt`, generated lab files, optional
+UI/API containers, and exact Feature 007 fixtures. The base worker and event consumer were restored
+healthy on only `network-lab_default`; device credential variables were absent. The retained volume
+name hash remained `fe03cb33fcf6171b140274f510f020e341e0ddf5563e882773150a25ba5ee793`, matching
+pre-Feature-007 canonical evidence. No named volume, Kafka topic, Temporal history, unrelated
+Nautobot object, or Feature 005 state was reset.
+
+The accepted Feature 006 timeout wrapper still bounds the API response but cannot forcibly stop a
+Python worker thread after `asyncio.to_thread()` cancellation. No canonical timeout occurred; the
+real one-shot read completed inside the request budget. Timeout, no-retry, and safe unavailable
+behavior remain covered at the API boundary by automated tests. Changing the underlying Feature 004
+blocking gNMI read lifecycle would require a separately planned architectural change.

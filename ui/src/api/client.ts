@@ -18,11 +18,14 @@ function hasFields(value: unknown, fields: string[]): value is Record<string, un
 const isString = (value: unknown): value is string => typeof value === "string";
 const isNullableString = (value: unknown): value is string | null => value === null || isString(value);
 const isNullableNumber = (value: unknown): value is number | null => value === null || typeof value === "number";
-const isScalar = (value: unknown): value is string | number | boolean => ["string", "number", "boolean"].includes(typeof value);
+const isSafeText = (value: unknown, maxLength = 128): value is string => isString(value) && value.length <= maxLength && value.trim().length > 0;
+const isScalar = (value: unknown): value is string | number | boolean => isSafeText(value) || typeof value === "boolean" || (typeof value === "number" && Number.isInteger(value));
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+const isOneOf = (value: unknown, options: readonly string[]): value is string => isString(value) && options.includes(value);
 
 function isAvailability(value: unknown): boolean {
   return hasFields(value, ["source", "status", "observed_at", "duration_ms", "code", "message"])
-    && isString(value.source) && isString(value.status) && isString(value.observed_at)
+    && isString(value.source) && isOneOf(value.status, ["healthy", "degraded", "unavailable", "unknown"]) && isString(value.observed_at)
     && isNullableNumber(value.duration_ms) && isNullableString(value.code) && isNullableString(value.message);
 }
 
@@ -97,18 +100,96 @@ function isIntent(value: unknown): boolean {
     && Array.isArray(value.bgp_neighbors) && value.bgp_neighbors.every((item) => hasFields(item, ["address", "remote_asn"]) && isString(item.address) && typeof item.remote_asn === "number" && (!("description" in item) || isNullableString(item.description)));
 }
 
-function isCheck(value: unknown): boolean {
-  return hasFields(value, ["name", "status", "expected", "observed", "message"])
-    && isString(value.name) && isString(value.status) && isScalar(value.expected)
-    && (value.observed === null || isScalar(value.observed)) && isNullableString(value.message);
+function isComparisonCheck(value: unknown, categories: readonly string[], statuses: readonly string[]): boolean {
+  if (!hasFields(value, ["key", "category", "status", "expected", "observed", "message"])
+    || !isSafeText(value.key) || !isOneOf(value.category, categories) || !isOneOf(value.status, statuses) || !isScalar(value.expected)
+    || (value.observed !== null && !isScalar(value.observed)) || (value.message !== null && !isSafeText(value.message, 256))) return false;
+  const matches = value.observed !== null && typeof value.observed === typeof value.expected && value.observed === value.expected;
+  if (statuses.includes("match")) return (value.status === "match") === matches && (value.status === "match") === (value.message === null);
+  const expectedStatus = value.observed === null ? "unavailable" : matches ? "healthy" : "unhealthy";
+  return value.status === expectedStatus && (value.status === "healthy") === (value.message === null);
 }
 
-function isLiveState(value: unknown): boolean {
-  return hasFields(value, ["status", "hostname", "interfaces", "bgp", "mismatch_count", "validated_at"])
-    && isString(value.status) && (value.hostname === null || isCheck(value.hostname))
-    && Array.isArray(value.interfaces) && value.interfaces.every(isCheck)
-    && Array.isArray(value.bgp) && value.bgp.every(isCheck)
-    && typeof value.mismatch_count === "number" && isNullableString(value.validated_at);
+const configurationCategories = ["hostname", "interface_admin", "subinterface_admin", "address_presence", "bgp_local_asn", "bgp_peer_as"] as const;
+const operationalCategories = ["interface_oper", "subinterface_oper", "address_readiness", "bgp_session"] as const;
+
+function hasUniqueCheckKeys(checks: unknown[]): boolean {
+  const keys = checks.map((check) => (check as Record<string, unknown>).key);
+  return new Set(keys).size === keys.length;
+}
+
+function isSources(value: unknown): boolean {
+  if (!hasFields(value, ["intent", "device"]) || !isAvailability(value.intent) || !isAvailability(value.device)) return false;
+  return (value.intent as Record<string, unknown>).source === "nautobot" && (value.device as Record<string, unknown>).source === "device";
+}
+
+function isConfigurationResult(value: unknown): boolean {
+  if (!hasFields(value, ["device_name", "status", "checks", "matches", "mismatches", "observed_at"])
+    || !isString(value.device_name) || !isOneOf(value.status, ["in_sync", "drifted"]) || !isString(value.observed_at)
+    || !Array.isArray(value.checks) || !value.checks.every((check) => isComparisonCheck(check, configurationCategories, ["match", "mismatch"]))
+    || !hasUniqueCheckKeys(value.checks) || !isCount(value.matches) || !isCount(value.mismatches)) return false;
+  const checks = value.checks as unknown[];
+  const matches = checks.filter((check) => (check as Record<string, unknown>).status === "match").length;
+  const mismatches = checks.length - matches;
+  return value.matches === matches && value.mismatches === mismatches && value.status === (mismatches === 0 ? "in_sync" : "drifted");
+}
+
+function isOperationalResult(value: unknown): boolean {
+  if (!hasFields(value, ["device_name", "status", "checks", "healthy_count", "unhealthy_count", "unavailable_count", "observed_at"])
+    || !isString(value.device_name) || !isOneOf(value.status, ["healthy", "degraded", "unavailable"]) || !isString(value.observed_at)
+    || !Array.isArray(value.checks) || !value.checks.every((check) => isComparisonCheck(check, operationalCategories, ["healthy", "unhealthy", "unavailable"]))
+    || !hasUniqueCheckKeys(value.checks) || !isCount(value.healthy_count) || !isCount(value.unhealthy_count) || !isCount(value.unavailable_count)) return false;
+  const checks = value.checks as unknown[];
+  const count = (status: string) => checks.filter((check) => (check as Record<string, unknown>).status === status).length;
+  const healthy = count("healthy");
+  const unhealthy = count("unhealthy");
+  const unavailable = count("unavailable");
+  const aggregate = healthy + unhealthy === 0 ? "unavailable" : unhealthy + unavailable > 0 ? "degraded" : "healthy";
+  return value.healthy_count === healthy && value.unhealthy_count === unhealthy && value.unavailable_count === unavailable && value.status === aggregate;
+}
+
+function isConfigurationObservation(value: unknown): boolean {
+  if (!hasFields(value, ["status", "sources", "result", "observed_at"]) || !isOneOf(value.status, ["in_sync", "drifted", "unavailable"])
+    || !isSources(value.sources) || !isString(value.observed_at)) return false;
+  if (value.status === "unavailable") {
+    const sources = value.sources as Record<string, Record<string, unknown>>;
+    return value.result === null && (sources.intent.status !== "healthy" || sources.device.status !== "healthy");
+  }
+  if (!isConfigurationResult(value.result)) return false;
+  const result = value.result as Record<string, unknown>;
+  const sources = value.sources as Record<string, Record<string, unknown>>;
+  return result.status === value.status && result.observed_at === value.observed_at
+    && sources.intent.status === "healthy" && sources.device.status === "healthy";
+}
+
+function isOperationalObservation(value: unknown): boolean {
+  if (!hasFields(value, ["status", "sources", "result", "observed_at"]) || !isOneOf(value.status, ["healthy", "degraded", "unavailable"])
+    || !isSources(value.sources) || !isString(value.observed_at)) return false;
+  if (value.result === null) {
+    const sources = value.sources as Record<string, Record<string, unknown>>;
+    return value.status === "unavailable" && (sources.intent.status !== "healthy" || sources.device.status !== "healthy");
+  }
+  if (!isOperationalResult(value.result)) return false;
+  const result = value.result as Record<string, unknown>;
+  const sources = value.sources as Record<string, Record<string, unknown>>;
+  return result.status === value.status && result.observed_at === value.observed_at
+    && sources.intent.status === "healthy" && sources.device.status === "healthy";
+}
+
+function isDeviceDetail(value: unknown): boolean {
+  if (!hasFields(value, ["summary", "intent", "latest_artifact", "latest_deployment", "historical_validation", "configuration_drift", "operational_health"])
+    || "live_state" in value || !isDeviceSummary(value.summary) || !isEnvelope(value.intent, isIntent)
+    || !isEnvelope(value.latest_artifact, isArtifact) || !isEnvelope(value.latest_deployment, isDeployment)
+    || !isEnvelope(value.historical_validation, isValidation)
+    || !isConfigurationObservation(value.configuration_drift) || !isOperationalObservation(value.operational_health)) return false;
+  const summary = value.summary as Record<string, unknown>;
+  const configuration = value.configuration_drift as Record<string, unknown>;
+  const operational = value.operational_health as Record<string, unknown>;
+  const configurationResult = configuration.result as Record<string, unknown> | null;
+  const operationalResult = operational.result as Record<string, unknown> | null;
+  return configuration.observed_at === operational.observed_at
+    && (configurationResult === null || configurationResult.device_name === summary.name)
+    && (operationalResult === null || operationalResult.device_name === summary.name);
 }
 
 function isHealth(value: unknown): boolean {
@@ -139,10 +220,7 @@ function matchesContract(path: string, body: unknown): boolean {
   if (pathname === "/api/devices") return hasFields(body, ["items", "count", "observed_at", "availability"])
     && Array.isArray(body.items) && body.items.every(isDeviceSummary) && typeof body.count === "number"
     && isString(body.observed_at) && isAvailability(body.availability);
-  if (pathname.startsWith("/api/devices/")) return hasFields(body, ["summary", "intent", "latest_artifact", "latest_deployment", "historical_validation", "live_state"])
-    && isDeviceSummary(body.summary) && isEnvelope(body.intent, isIntent)
-    && isEnvelope(body.latest_artifact, isArtifact) && isEnvelope(body.latest_deployment, isDeployment)
-    && isEnvelope(body.historical_validation, isValidation) && isEnvelope(body.live_state, isLiveState);
+  if (pathname.startsWith("/api/devices/")) return isDeviceDetail(body);
   if (pathname === "/api/workflows") return hasFields(body, ["items", "count", "observed_at", "availability"])
     && Array.isArray(body.items) && body.items.every(isWorkflow) && typeof body.count === "number"
     && isString(body.observed_at) && isAvailability(body.availability);

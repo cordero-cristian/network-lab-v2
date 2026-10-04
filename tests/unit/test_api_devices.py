@@ -4,11 +4,24 @@ from dataclasses import replace
 from ipaddress import IPv4Address
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from network_automation.api.app import create_app
 from network_automation.api import devices as api_devices
+from network_automation.devices import DeviceAuthenticationError, DeviceResponseError
+from network_automation.devices.srlinux import (
+    HOSTNAME_PATH,
+    interface_admin_path,
+    interface_oper_path,
+    ipv4_address_status_path,
+    local_asn_path,
+    neighbor_peer_as_path,
+    neighbor_session_state_path,
+    subinterface_admin_path,
+    subinterface_oper_path,
+)
 from network_automation.intent.models import (
     BgpIntent,
     BgpNeighborIntent,
@@ -71,6 +84,29 @@ def _snapshot(name: str, address: str, neighbor: str) -> NautobotDeploymentInten
     )
 
 
+def _matching_observation() -> dict[str, str | int | bool | None]:
+    values: dict[str, str | int | bool | None] = {
+        HOSTNAME_PATH: "leaf01",
+        local_asn_path(): 65001,
+        neighbor_peer_as_path("10.0.0.1"): 65002,
+        neighbor_session_state_path("10.0.0.1"): "established",
+    }
+    for name, prefix in (
+        ("system0", "192.0.2.1/32"),
+        ("ethernet-1/1", "10.0.0.0/31"),
+    ):
+        values.update(
+            {
+                interface_admin_path(name): "enable",
+                interface_oper_path(name): "up",
+                subinterface_admin_path(name): "enable",
+                subinterface_oper_path(name): "up",
+                ipv4_address_status_path(name, prefix): "preferred",
+            }
+        )
+    return values
+
+
 class LogicalNautobot(Nautobot):
     def list_inventory_devices(self, *, limit: int):
         devices = super().list_inventory_devices(limit=limit)
@@ -93,6 +129,18 @@ class LogicalNautobot(Nautobot):
         if name == "leaf01":
             return _snapshot("leaf01", "10.0.0.0/31", "10.0.0.1")
         return _snapshot("leaf02", "10.0.0.1/31", "10.0.0.0")
+
+
+class ProjectionInvalidNautobot(LogicalNautobot):
+    def get_deployment_intent(self, name):
+        snapshot = super().get_deployment_intent(name)
+        interface = snapshot.intent.interfaces[0].model_copy(
+            update={"description": "x" * 161}
+        )
+        return replace(
+            snapshot,
+            intent=snapshot.intent.model_copy(update={"interfaces": (interface,)}),
+        )
 
 
 def test_device_list_exposes_only_normalized_inventory_fields() -> None:
@@ -219,9 +267,185 @@ def test_live_timeout_preserves_inventory_and_invokes_one_read(monkeypatch) -> N
     assert response.status_code == 200
     assert response.json()["summary"]["name"] == "leaf01"
     assert response.json()["intent"]["data"]["hostname"] == "leaf01"
-    assert response.json()["live_state"]["data"] is None
-    assert response.json()["live_state"]["availability"]["code"] == "timeout"
+    payload = response.json()
+    assert "live_state" not in payload
+    assert payload["configuration_drift"]["status"] == "unavailable"
+    assert payload["operational_health"]["status"] == "unavailable"
+    assert payload["configuration_drift"]["result"] is None
+    assert payload["operational_health"]["result"] is None
+    assert payload["configuration_drift"]["sources"]["intent"]["status"] == "healthy"
+    assert payload["configuration_drift"]["sources"]["device"]["code"] == "timeout"
+    assert payload["configuration_drift"]["observed_at"] == payload["operational_health"]["observed_at"]
     assert calls == 1
+
+
+def test_live_false_and_unavailable_intent_never_read_device(monkeypatch) -> None:
+    calls = 0
+
+    def read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {}
+
+    monkeypatch.setattr(api_devices, "read_srlinux_native_state", read)
+    configured = settings().model_copy(update={
+        "device_username": "admin",
+        "device_password": SecretStr("password"),
+    })
+    without_live = create_app(
+        settings=configured, nautobot_client=LogicalNautobot(), temporal_client=None
+    )
+    without_intent = create_app(
+        settings=configured, nautobot_client=Nautobot(), temporal_client=None
+    )
+
+    with TestClient(without_live) as client:
+        not_requested = client.get("/api/devices/leaf01?live=false").json()
+    with TestClient(without_intent) as client:
+        unavailable = client.get("/api/devices/leaf01?live=true").json()
+
+    assert calls == 0
+    for payload in (not_requested, unavailable):
+        assert "live_state" not in payload
+        assert payload["configuration_drift"]["status"] == "unavailable"
+        assert payload["operational_health"]["status"] == "unavailable"
+        assert payload["configuration_drift"]["observed_at"] == payload["operational_health"]["observed_at"]
+    assert not_requested["configuration_drift"]["sources"]["intent"]["status"] == "healthy"
+    assert not_requested["configuration_drift"]["sources"]["device"]["code"] == "not_configured"
+    assert unavailable["configuration_drift"]["sources"]["intent"]["status"] == "unavailable"
+    assert unavailable["configuration_drift"]["sources"]["device"]["code"] == "not_configured"
+
+
+def test_invalid_intent_projection_preserves_detail_and_never_reads_device(
+    monkeypatch,
+) -> None:
+    calls = 0
+
+    def read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return _matching_observation()
+
+    monkeypatch.setattr(api_devices, "read_srlinux_native_state", read)
+    configured = settings().model_copy(update={
+        "device_username": "admin",
+        "device_password": SecretStr("password"),
+    })
+    app = create_app(
+        settings=configured,
+        nautobot_client=ProjectionInvalidNautobot(),
+        temporal_client=None,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/devices/leaf01?live=true")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert calls == 0
+    assert payload["summary"]["name"] == "leaf01"
+    assert payload["intent"]["data"] is None
+    assert payload["intent"]["availability"]["status"] == "unavailable"
+    assert payload["configuration_drift"]["sources"]["intent"]["status"] == "unavailable"
+    assert payload["configuration_drift"]["sources"]["device"]["code"] == "not_configured"
+
+
+def test_successful_live_comparison_reads_once_and_shares_one_observation(monkeypatch) -> None:
+    calls = 0
+
+    def read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return _matching_observation()
+
+    monkeypatch.setattr(api_devices, "read_srlinux_native_state", read)
+    configured = settings().model_copy(update={
+        "device_username": "admin",
+        "device_password": SecretStr("password"),
+    })
+    app = create_app(
+        settings=configured, nautobot_client=LogicalNautobot(), temporal_client=None
+    )
+
+    with TestClient(app) as client:
+        payload = client.get("/api/devices/leaf01?live=true").json()
+
+    assert calls == 1
+    assert "live_state" not in payload
+    assert payload["configuration_drift"]["status"] == "in_sync"
+    assert payload["operational_health"]["status"] == "healthy"
+    assert payload["configuration_drift"]["sources"]["intent"]["status"] == "healthy"
+    assert payload["configuration_drift"]["sources"]["device"]["status"] == "healthy"
+    assert payload["configuration_drift"]["observed_at"] == payload["operational_health"]["observed_at"]
+    assert payload["configuration_drift"]["result"]["observed_at"] == payload["operational_health"]["result"]["observed_at"]
+
+
+def test_live_failures_are_safe_source_results_without_retry(monkeypatch) -> None:
+    configured = settings().model_copy(update={
+        "device_username": "admin",
+        "device_password": SecretStr("password"),
+    })
+
+    for failure, code in (
+        (DeviceAuthenticationError("password=secret"), "unreachable"),
+        (DeviceResponseError("raw response secret"), "invalid_response"),
+    ):
+        calls = 0
+
+        def fail(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise failure
+
+        monkeypatch.setattr(api_devices, "read_srlinux_native_state", fail)
+        app = create_app(
+            settings=configured, nautobot_client=LogicalNautobot(), temporal_client=None
+        )
+        with TestClient(app) as client:
+            response = client.get("/api/devices/leaf01?live=true")
+
+        payload = response.json()
+        assert response.status_code == 200
+        assert calls == 1
+        assert payload["configuration_drift"]["sources"]["device"]["code"] == code
+        assert payload["operational_health"]["sources"]["device"]["code"] == code
+        assert "secret" not in response.text
+
+
+@pytest.mark.parametrize("malformed", (True, "", "x" * 129, ["raw-secret"]))
+def test_malformed_live_leaf_invalidates_both_results_without_retry(
+    monkeypatch, malformed
+) -> None:
+    calls = 0
+
+    def read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        observed = _matching_observation()
+        observed[HOSTNAME_PATH] = malformed
+        return observed
+
+    monkeypatch.setattr(api_devices, "read_srlinux_native_state", read)
+    configured = settings().model_copy(update={
+        "device_username": "admin",
+        "device_password": SecretStr("password"),
+    })
+    app = create_app(
+        settings=configured, nautobot_client=LogicalNautobot(), temporal_client=None
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/devices/leaf01?live=true")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert calls == 1
+    assert payload["configuration_drift"]["status"] == "unavailable"
+    assert payload["operational_health"]["status"] == "unavailable"
+    assert payload["configuration_drift"]["sources"]["intent"]["status"] == "healthy"
+    assert payload["configuration_drift"]["sources"]["device"]["code"] == "invalid_response"
+    if str(malformed):
+        assert str(malformed) not in response.text
 
 
 def test_direct_topology_route_has_an_aggregate_timeout(monkeypatch) -> None:

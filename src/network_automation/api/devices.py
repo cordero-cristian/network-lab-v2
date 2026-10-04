@@ -8,18 +8,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from temporalio.service import RPCError
 
 from network_automation.api.models import (
     ArtifactSummary,
     AvailabilityEnvelope,
+    ComparisonSources,
+    ConfigurationDriftObservation,
     DeviceDetail,
     DeviceList,
     DeviceSummary,
     IntendedBgpNeighbor,
     IntendedInterface,
     IntendedStateSummary,
-    LiveStateSummary,
+    OperationalHealthObservation,
     SourceAvailability,
     TopologyGraph,
     TopologyLink,
@@ -27,8 +30,17 @@ from network_automation.api.models import (
     ValidationSummary,
 )
 from network_automation.api.workflows import deployment_from_summary, list_workflow_projections
+from network_automation.devices import (
+    DeviceAuthenticationError,
+    DeviceConnectionError,
+    DeviceIdentityError,
+    DevicePathError,
+    DevicePlatformError,
+    DeviceResponseError,
+)
+from network_automation.devices.comparison import DeviceComparison, compare_device_state
 from network_automation.devices.read_state import read_srlinux_native_state
-from network_automation.devices.validation import expected_state_from_intent, validation_result
+from network_automation.devices.validation import expected_state_from_intent
 from network_automation.events.models import ArtifactIdentity, DeploymentTarget, PreparedDeployment
 from network_automation.intent.nautobot import (
     NautobotClient,
@@ -42,8 +54,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def availability(source: str, status: str = "healthy", code: str = "ok", message: str | None = None) -> SourceAvailability:
-    return SourceAvailability(source=source, status=status, observed_at=_now(), code=code, message=message)
+def availability(
+    source: str,
+    status: str = "healthy",
+    code: str = "ok",
+    message: str | None = None,
+    *,
+    observed_at: datetime | None = None,
+) -> SourceAvailability:
+    return SourceAvailability(
+        source=source,
+        status=status,
+        observed_at=observed_at or _now(),
+        code=code,
+        message=message,
+    )
 
 
 def _device_summary(
@@ -122,10 +147,11 @@ def _intent_summary(intent: Any) -> IntendedStateSummary:
     )
 
 
-async def _live(snapshot: Any, settings: LabSettings) -> LiveStateSummary:
+async def _live(
+    snapshot: Any, settings: LabSettings, expected: Any
+) -> DeviceComparison:
     if settings.device_username is None or settings.device_password is None:
         raise RuntimeError("device settings missing")
-    expected = expected_state_from_intent(snapshot.intent)
     prepared = PreparedDeployment(
         artifact=ArtifactIdentity(
             device_name=snapshot.intent.name,
@@ -150,15 +176,59 @@ async def _live(snapshot: Any, settings: LabSettings) -> LiveStateSummary:
             settings.api_live_timeout_seconds,
         ),
     )
-    result = validation_result(prepared, observed)
-    checks = [check.model_dump(mode="json") for check in result.checks]
-    return LiveStateSummary(
-        status=result.status,
-        hostname=next((check for check in checks if check["name"] == "system.hostname"), None),
-        interfaces=tuple(check for check in checks if str(check["name"]).startswith(("interface.", "subinterface.", "address."))),
-        bgp=tuple(check for check in checks if str(check["name"]).startswith("routing.bgp.")),
-        mismatch_count=sum(check["status"] == "failed" for check in checks),
-        validated_at=result.validated_at,
+    return compare_device_state(expected, observed, _now())
+
+
+def _comparison_sources(
+    observed_at: datetime,
+    *,
+    intent_status: str = "healthy",
+    intent_code: str = "ok",
+    intent_message: str | None = None,
+    device_status: str = "healthy",
+    device_code: str = "ok",
+    device_message: str | None = None,
+) -> ComparisonSources:
+    return ComparisonSources(
+        intent=availability(
+            "nautobot", intent_status, intent_code, intent_message, observed_at=observed_at
+        ),
+        device=availability(
+            "device", device_status, device_code, device_message, observed_at=observed_at
+        ),
+    )
+
+
+def _unavailable_comparison(
+    observed_at: datetime, sources: ComparisonSources
+) -> tuple[ConfigurationDriftObservation, OperationalHealthObservation]:
+    return (
+        ConfigurationDriftObservation(
+            status="unavailable", sources=sources, result=None, observed_at=observed_at
+        ),
+        OperationalHealthObservation(
+            status="unavailable", sources=sources, result=None, observed_at=observed_at
+        ),
+    )
+
+
+def _successful_comparison(
+    comparison: DeviceComparison,
+) -> tuple[ConfigurationDriftObservation, OperationalHealthObservation]:
+    sources = _comparison_sources(comparison.observed_at)
+    return (
+        ConfigurationDriftObservation(
+            status=comparison.configuration.status,
+            sources=sources,
+            result=comparison.configuration,
+            observed_at=comparison.observed_at,
+        ),
+        OperationalHealthObservation(
+            status=comparison.operational.status,
+            sources=sources,
+            result=comparison.operational,
+            observed_at=comparison.observed_at,
+        ),
     )
 
 
@@ -198,7 +268,7 @@ async def get_device_detail(nautobot: NautobotClient, temporal: Any | None, sett
                 asyncio.to_thread(nautobot.get_deployment_intent, name),
                 timeout=settings.api_overview_timeout_seconds,
             )
-        except (NautobotError, TimeoutError):
+        except (NautobotError, TimeoutError, ValidationError):
             return None
 
     (latest, temporal_available), snapshot = await asyncio.gather(
@@ -210,8 +280,16 @@ async def get_device_detail(nautobot: NautobotClient, temporal: Any | None, sett
         observed_at,
         temporal_available=temporal_available,
     )
+    intent_summary: IntendedStateSummary | None = None
     if snapshot is not None:
-        intent = AvailabilityEnvelope(availability=availability("nautobot"), data=_intent_summary(snapshot.intent))
+        try:
+            intent_summary = _intent_summary(snapshot.intent)
+        except ValidationError:
+            snapshot = None
+    if intent_summary is not None:
+        intent = AvailabilityEnvelope(
+            availability=availability("nautobot"), data=intent_summary
+        )
     else:
         intent = AvailabilityEnvelope(
             availability=availability("nautobot", "unavailable", "invalid_response", "Device intent is unavailable"), data=None
@@ -255,30 +333,136 @@ async def get_device_detail(nautobot: NautobotClient, temporal: Any | None, sett
         ),
         data=(ValidationSummary(status=latest.validation_status) if latest else None),
     )
-    live_envelope: AvailabilityEnvelope[LiveStateSummary]
+    comparison_observed_at = _now()
     if not live:
-        live_envelope = AvailabilityEnvelope(
-            availability=availability("device", "unknown", "not_configured", "Live state was not requested"), data=None
+        configuration_drift, operational_health = _unavailable_comparison(
+            comparison_observed_at,
+            _comparison_sources(
+                comparison_observed_at,
+                intent_status="healthy" if snapshot is not None else "unavailable",
+                intent_code="ok" if snapshot is not None else "invalid_response",
+                intent_message=None if snapshot is not None else "Device intent is unavailable",
+                device_status="unknown",
+                device_code="not_configured",
+                device_message="Live comparison was not requested",
+            ),
         )
     elif snapshot is None:
-        live_envelope = AvailabilityEnvelope(
-            availability=availability("device", "unavailable", "invalid_response", "Live state is unavailable"), data=None
+        configuration_drift, operational_health = _unavailable_comparison(
+            comparison_observed_at,
+            _comparison_sources(
+                comparison_observed_at,
+                intent_status="unavailable",
+                intent_code="invalid_response",
+                intent_message="Device intent is unavailable",
+                device_status="unknown",
+                device_code="not_configured",
+                device_message="Live comparison was not attempted",
+            ),
+        )
+    elif settings.device_username is None or settings.device_password is None:
+        configuration_drift, operational_health = _unavailable_comparison(
+            comparison_observed_at,
+            _comparison_sources(
+                comparison_observed_at,
+                device_status="unavailable",
+                device_code="not_configured",
+                device_message="Device access is not configured",
+            ),
         )
     else:
         try:
-            live_data = await asyncio.wait_for(_live(snapshot, settings), timeout=settings.api_live_timeout_seconds)
-            live_envelope = AvailabilityEnvelope(availability=availability("device"), data=live_data)
-        except TimeoutError:
-            live_envelope = AvailabilityEnvelope(
-                availability=availability("device", "unavailable", "timeout", "Live state read timed out"), data=None
+            expected = expected_state_from_intent(snapshot.intent)
+        except ValidationError:
+            configuration_drift, operational_health = _unavailable_comparison(
+                comparison_observed_at,
+                _comparison_sources(
+                    comparison_observed_at,
+                    intent_status="unavailable",
+                    intent_code="invalid_response",
+                    intent_message="Device intent is unavailable",
+                    device_status="unknown",
+                    device_code="not_configured",
+                    device_message="Live comparison was not attempted",
+                ),
             )
-        except Exception:
-            live_envelope = AvailabilityEnvelope(
-                availability=availability("device", "unavailable", "unreachable", "Live state is unavailable"), data=None
+            return DeviceDetail(
+                summary=summary,
+                intent=AvailabilityEnvelope(
+                    availability=availability(
+                        "nautobot",
+                        "unavailable",
+                        "invalid_response",
+                        "Device intent is unavailable",
+                    ),
+                    data=None,
+                ),
+                latest_artifact=artifact_envelope,
+                latest_deployment=deployment_envelope,
+                historical_validation=historical,
+                configuration_drift=configuration_drift,
+                operational_health=operational_health,
+            )
+        try:
+            comparison = await asyncio.wait_for(
+                _live(snapshot, settings, expected), timeout=settings.api_live_timeout_seconds
+            )
+            configuration_drift, operational_health = _successful_comparison(comparison)
+        except TimeoutError:
+            comparison_observed_at = _now()
+            configuration_drift, operational_health = _unavailable_comparison(
+                comparison_observed_at,
+                _comparison_sources(
+                    comparison_observed_at,
+                    device_status="unavailable",
+                    device_code="timeout",
+                    device_message="Live device read timed out",
+                ),
+            )
+        except DeviceAuthenticationError:
+            comparison_observed_at = _now()
+            configuration_drift, operational_health = _unavailable_comparison(
+                comparison_observed_at,
+                _comparison_sources(
+                    comparison_observed_at,
+                    device_status="unavailable",
+                    device_code="unreachable",
+                    device_message="Device authentication failed",
+                ),
+            )
+        except DeviceConnectionError:
+            comparison_observed_at = _now()
+            configuration_drift, operational_health = _unavailable_comparison(
+                comparison_observed_at,
+                _comparison_sources(
+                    comparison_observed_at,
+                    device_status="unavailable",
+                    device_code="unreachable",
+                    device_message="Live device is unavailable",
+                ),
+            )
+        except (
+            DeviceIdentityError,
+            DevicePathError,
+            DevicePlatformError,
+            DeviceResponseError,
+            ValidationError,
+            ValueError,
+        ):
+            comparison_observed_at = _now()
+            configuration_drift, operational_health = _unavailable_comparison(
+                comparison_observed_at,
+                _comparison_sources(
+                    comparison_observed_at,
+                    device_status="unavailable",
+                    device_code="invalid_response",
+                    device_message="Live device response is unavailable",
+                ),
             )
     return DeviceDetail(
         summary=summary, intent=intent, latest_artifact=artifact_envelope,
-        latest_deployment=deployment_envelope, historical_validation=historical, live_state=live_envelope,
+        latest_deployment=deployment_envelope, historical_validation=historical,
+        configuration_drift=configuration_drift, operational_health=operational_health,
     )
 
 

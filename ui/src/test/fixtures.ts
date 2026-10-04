@@ -47,7 +47,39 @@ export const deviceDetail: DeviceDetail = {
   latest_artifact: { availability: { ...available, source: "artifact" }, data: { relative_path: "configs/f004-leaf01.cfg", sha256: "a".repeat(64), byte_count: 2300, available: true } },
   latest_deployment: { availability: available, data: overview.deployments.recent_failures[0] },
   historical_validation: { availability: available, data: { status: "failed", validated_at: observedAt, checks_total: 5, checks_failed: 1 } },
-  live_state: { availability: { ...available, source: "device" }, data: { status: "failed", hostname: { name: "system.hostname", status: "passed", expected: "f004-leaf01", observed: "f004-leaf01", message: null }, interfaces: [{ name: "interface.ethernet-1/1.admin-state", status: "failed", expected: "enable", observed: "disable", message: "Interface state does not match" }], bgp: [], mismatch_count: 1, validated_at: "2026-09-14T14:32:17Z" } },
+  configuration_drift: {
+    status: "drifted",
+    sources: { intent: { ...available, source: "nautobot" }, device: { ...available, source: "device" } },
+    result: {
+      device_name: "f004-leaf01",
+      status: "drifted",
+      checks: [
+        { key: "system.hostname", category: "hostname", status: "match", expected: "f004-leaf01", observed: "f004-leaf01", message: null },
+        { key: "interface.ethernet-1/1.admin_state", category: "interface_admin", status: "mismatch", expected: "enable", observed: "disable", message: "Interface administrative state does not match intent." },
+      ],
+      matches: 1,
+      mismatches: 1,
+      observed_at: "2026-09-14T14:32:17Z",
+    },
+    observed_at: "2026-09-14T14:32:17Z",
+  },
+  operational_health: {
+    status: "degraded",
+    sources: { intent: { ...available, source: "nautobot" }, device: { ...available, source: "device" } },
+    result: {
+      device_name: "f004-leaf01",
+      status: "degraded",
+      checks: [
+        { key: "interface.ethernet-1/1.oper_state", category: "interface_oper", status: "healthy", expected: "up", observed: "up", message: null },
+        { key: "routing.bgp.neighbor.10.46.0.0.session_state", category: "bgp_session", status: "unhealthy", expected: "established", observed: "active", message: "BGP session is not established." },
+      ],
+      healthy_count: 1,
+      unhealthy_count: 1,
+      unavailable_count: 0,
+      observed_at: "2026-09-14T14:32:17Z",
+    },
+    observed_at: "2026-09-14T14:32:17Z",
+  },
 };
 
 export const devices: DeviceListResponse = { items: [deviceDetail.summary], count: 1, observed_at: observedAt, availability: { ...available, source: "nautobot" } };
