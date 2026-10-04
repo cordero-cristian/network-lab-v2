@@ -129,7 +129,10 @@ def check_nautobot(settings: LabSettings) -> CheckResult:
             health.raise_for_status()
             status = client.get(
                 f"{base}/api/status/",
-                headers={"Authorization": f"Token {settings.nautobot_token.get_secret_value()}"},
+                headers={
+                    "Authorization": f"Token {settings.nautobot_token.get_secret_value()}",
+                    "Accept": "application/json; version=3.2",
+                },
                 timeout=max(deadline - time.monotonic(), 0.001),
             )
             status.raise_for_status()

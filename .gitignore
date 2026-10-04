@@ -3,12 +3,16 @@
 .env.*
 !.env.example
 .venv/
+node_modules/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
 dist/
 build/
+coverage/
+/artifacts/
+/graphify-out/
 .DS_Store
 lab/clab-*/
 lab/clab.yml
@@ -18,6 +22,7 @@ lab/hosts.yml
 lab/ansible.cfg
 lab/group_vars/
 lab/host_vars/
+lab/config/
 lab/node_files/
 lab/netlab.snapshot.pickle
 lab/netlab-devices.yml

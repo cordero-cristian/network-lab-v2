@@ -20,6 +20,19 @@ x-nautobot-environment: &nautobot-environment
   NAUTOBOT_SUPERUSER_NAME: ${NAUTOBOT_SUPERUSER_NAME:-admin}
   NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:?set NAUTOBOT_SUPERUSER_PASSWORD in .env}
 
+x-automation-environment: &automation-environment
+  LAB_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  LAB_TEMPORAL_ADDRESS: temporal:7233
+  LAB_TEMPORAL_NAMESPACE: default
+  LAB_RENDER_REQUEST_TOPIC: ${LAB_RENDER_REQUEST_TOPIC:-network.render.requested}
+  LAB_RENDER_COMPLETED_TOPIC: ${LAB_RENDER_COMPLETED_TOPIC:-network.render.completed}
+  LAB_RENDER_FAILED_TOPIC: ${LAB_RENDER_FAILED_TOPIC:-network.render.failed}
+  LAB_DEPLOYMENT_REQUEST_TOPIC: ${LAB_DEPLOYMENT_REQUEST_TOPIC:-network.deployment.requested}
+  LAB_DEPLOYMENT_COMPLETED_TOPIC: ${LAB_DEPLOYMENT_COMPLETED_TOPIC:-network.deployment.completed}
+  LAB_DEPLOYMENT_FAILED_TOPIC: ${LAB_DEPLOYMENT_FAILED_TOPIC:-network.deployment.failed}
+  LAB_RENDER_CONSUMER_GROUP: ${LAB_RENDER_CONSUMER_GROUP:-network-automation-render-consumer}
+  LAB_TEMPORAL_TASK_QUEUE: ${LAB_TEMPORAL_TASK_QUEUE:-network-automation}
+
 services:
   postgres:
     image: postgres:16.15-bookworm
@@ -175,7 +188,7 @@ services:
     restart: unless-stopped
 
   nautobot-init:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     user: root
     environment: *nautobot-environment
     entrypoint: ["/bin/bash", "-ec"]
@@ -196,7 +209,7 @@ services:
     restart: "no"
 
   nautobot:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     ports:
       - "127.0.0.1:${LAB_NAUTOBOT_HOST_PORT:-8000}:8080"
@@ -214,7 +227,7 @@ services:
     restart: unless-stopped
 
   nautobot-worker:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     command: ["nautobot-server", "celery", "worker", "--loglevel", "INFO", "--hostname", "celery@nautobot-worker"]
     volumes:
@@ -231,7 +244,7 @@ services:
     restart: unless-stopped
 
   nautobot-scheduler:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     command: ["nautobot-server", "celery", "beat", "--loglevel", "INFO", "--pidfile", "/tmp/nautobot-celery-beat.pid"]
     depends_on:
@@ -243,6 +256,116 @@ services:
       timeout: 5s
       start_period: 45s
       retries: 8
+    restart: unless-stopped
+
+  automation-worker:
+    image: network-automation-lab:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile.automation
+    profiles: ["automation"]
+    environment:
+      <<: *automation-environment
+      LAB_NAUTOBOT_URL: http://nautobot:8080
+      LAB_DEVICE_USERNAME:
+      LAB_DEVICE_PASSWORD:
+      LAB_DEVICE_GNMI_PORT: ${LAB_DEVICE_GNMI_PORT:-57401}
+      LAB_DEVICE_GNMI_TIMEOUT_SECONDS: ${LAB_DEVICE_GNMI_TIMEOUT_SECONDS:-10}
+      LAB_DEVICE_GNMI_TLS_MODE: ${LAB_DEVICE_GNMI_TLS_MODE:-insecure}
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-worker
+      NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
+    command: ["network-worker"]
+    volumes:
+      - ./artifacts:/app/artifacts
+    depends_on:
+      kafka:
+        condition: service_healthy
+      nautobot:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/network-worker.ready && find /tmp/network-worker.heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    restart: unless-stopped
+
+  event-consumer:
+    image: network-automation-lab:0.1.0
+    profiles: ["automation"]
+    environment:
+      <<: *automation-environment
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-consumer
+      NAUTOBOT_SUPERUSER_API_TOKEN: unused-by-consumer
+    command: ["network-event-consumer"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/network-event-consumer.ready && find /tmp/network-event-consumer.heartbeat -mmin -1 | grep -q ."]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    restart: unless-stopped
+
+  automation-ui-api:
+    image: network-automation-lab:0.1.0
+    profiles: ["ui"]
+    environment:
+      <<: *automation-environment
+      LAB_NAUTOBOT_URL: http://nautobot:8080
+      LAB_API_PROBE_TIMEOUT_SECONDS: ${LAB_API_PROBE_TIMEOUT_SECONDS:-3}
+      LAB_API_OVERVIEW_TIMEOUT_SECONDS: ${LAB_API_OVERVIEW_TIMEOUT_SECONDS:-8}
+      LAB_API_OVERVIEW_WORKFLOW_LIMIT: ${LAB_API_OVERVIEW_WORKFLOW_LIMIT:-8}
+      LAB_API_WORKFLOW_LIMIT: ${LAB_API_WORKFLOW_LIMIT:-25}
+      LAB_API_WORKFLOW_HYDRATION_CONCURRENCY: ${LAB_API_WORKFLOW_HYDRATION_CONCURRENCY:-4}
+      LAB_API_LIVE_TIMEOUT_SECONDS: ${LAB_API_LIVE_TIMEOUT_SECONDS:-15}
+      LAB_API_DEVICE_LIMIT: ${LAB_API_DEVICE_LIMIT:-50}
+      LAB_API_ARTIFACT_ROOT: /app/artifacts
+      NAUTOBOT_SUPERUSER_PASSWORD: unused-by-ui-api
+      NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:?set NAUTOBOT_SUPERUSER_API_TOKEN in .env}
+    command: ["network-ui-api"]
+    ports:
+      - "127.0.0.1:${LAB_UI_API_HOST_PORT:-8001}:8000"
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      kafka:
+        condition: service_started
+      nautobot:
+        condition: service_started
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=1).read()"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+
+  automation-ui:
+    image: network-automation-ui:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    profiles: ["ui"]
+    ports:
+      - "127.0.0.1:${LAB_UI_HOST_PORT:-3000}:8080"
+    depends_on:
+      automation-ui-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
     restart: unless-stopped
 
 volumes:

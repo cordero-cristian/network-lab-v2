@@ -1,0 +1,64 @@
+{
+  "device": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "leaf01",
+    "platform": {
+      "network_driver": "nokia_srl",
+      "display": "Nokia SR Linux"
+    },
+    "role": {
+      "display": "leaf"
+    },
+    "location": {
+      "display": "test-site"
+    },
+    "local_config_context_data": {
+      "network_automation": {
+        "bgp": {
+          "local_asn": 65001,
+          "neighbors": [
+            {
+              "address": "192.0.2.3",
+              "remote_asn": 65200,
+              "description": "spine02"
+            },
+            {
+              "address": "192.0.2.1",
+              "remote_asn": 65100,
+              "description": "spine01"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "interfaces": [
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "name": "ethernet-1/2",
+      "description": "to spine02",
+      "type": "100gbase-x-qsfp28",
+      "enabled": true,
+      "mgmt_only": false,
+      "ip_addresses": [{"address": "192.0.2.2/31"}]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "name": "source-loopback-name-is-not-intent",
+      "description": "router id",
+      "type": "virtual",
+      "enabled": true,
+      "mgmt_only": false,
+      "ip_addresses": [{"address": "10.0.0.1/32"}]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "name": "ethernet-1/1",
+      "description": "to spine01",
+      "type": "100gbase-x-qsfp28",
+      "enabled": true,
+      "mgmt_only": false,
+      "ip_addresses": [{"address": "192.0.2.0/31"}]
+    }
+  ]
+}

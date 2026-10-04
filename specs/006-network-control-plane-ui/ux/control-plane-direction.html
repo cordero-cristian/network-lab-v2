@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feature 006 Control Plane UX Direction</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080c10;
+      --panel: #0e151b;
+      --panel-2: #121c24;
+      --line: #253540;
+      --line-strong: #385160;
+      --text: #e6eef2;
+      --muted: #8da2ad;
+      --dim: #607680;
+      --cyan: #55d6dc;
+      --green: #71d99b;
+      --amber: #efbf63;
+      --red: #f17878;
+      --blue: #7db4ee;
+      --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); color: var(--text); font-family: var(--sans); }
+    body { margin: 0; min-width: 0; background: radial-gradient(circle at 65% -15%, #17313a 0, transparent 32rem), var(--bg); }
+    button, a { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; }
+    svg { display: block; width: 100%; height: auto; }
+    .shell { width: min(1440px, 100%); min-width: 0; margin: 0 auto; padding: 20px; }
+    .fixture-note { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; color: var(--amber); font: 600 11px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .fixture-note::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px #efbf6318; }
+    .app { min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #0a1015e8; box-shadow: 0 28px 80px #0009; }
+    .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); background: #0b1218ee; }
+    .brandline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 14px; min-width: 0; }
+    .brand { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.015em; }
+    .environment { padding: 3px 7px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .observation { color: var(--dim); font: 11px var(--mono); }
+    .overall { display: flex; align-items: center; gap: 9px; color: var(--green); font: 600 12px var(--mono); white-space: nowrap; }
+    .status-mark { width: 9px; height: 9px; display: inline-block; flex: 0 0 auto; border-radius: 2px; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent); }
+    .status-mark.round { border-radius: 50%; }
+    .status-mark.fail { transform: rotate(45deg); }
+    .nav { display: flex; gap: 3px; padding: 0 20px; border-bottom: 1px solid var(--line); background: #0b1218; overflow-x: auto; }
+    .nav button { appearance: none; padding: 11px 13px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+    .nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--cyan); }
+    .screen { display: none; min-width: 0; padding: 20px; }
+    .screen.active { display: block; }
+    .screen-heading { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 16px; }
+    .screen-heading h2 { margin: 0; font-size: 22px; font-weight: 620; letter-spacing: -.02em; }
+    .screen-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .source-note { color: var(--dim); font: 10px var(--mono); text-align: right; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: var(--panel); }
+    .metric { min-width: 0; padding: 13px 15px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric-label { margin-bottom: 8px; color: var(--muted); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
+    .metric-row { display: flex; gap: 9px; align-items: baseline; min-width: 0; }
+    .metric-value { font: 600 23px var(--mono); }
+    .metric-note { min-width: 0; color: var(--dim); font: 10px var(--mono); overflow-wrap: anywhere; }
+    .overview-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr); gap: 14px; margin-top: 14px; }
+    .panel { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .panel-title { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: .035em; text-transform: uppercase; }
+    .panel-meta { color: var(--dim); font: 10px var(--mono); }
+    .topology { padding: 16px; }
+    .topology-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; color: var(--muted); font: 10px var(--mono); }
+    .legend-line { display: inline-block; width: 20px; border-top: 2px solid var(--line-strong); vertical-align: middle; margin-right: 6px; }
+    .legend-line.logical { border-top-style: dashed; border-top-color: var(--cyan); }
+    .activity { list-style: none; padding: 0; margin: 0; }
+    .activity li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .activity li:last-child { border-bottom: 0; }
+    .activity-copy { min-width: 0; }
+    .activity-title { margin: 0; font-size: 12px; }
+    .activity-detail { margin: 4px 0 0; color: var(--muted); font: 10px var(--mono); overflow-wrap: anywhere; }
+    .activity-time { color: var(--dim); font: 10px var(--mono); white-space: nowrap; }
+    .health-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; margin-top: 14px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: var(--line); }
+    .health-cell { min-width: 0; padding: 11px 12px; background: var(--panel); }
+    .health-name { display: flex; gap: 7px; align-items: center; font-size: 11px; }
+    .health-detail { margin-top: 4px; color: var(--dim); font: 9px var(--mono); overflow-wrap: anywhere; }
+    .breadcrumb { margin-bottom: 10px; color: var(--cyan); font: 11px var(--mono); }
+    .device-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .state-list { margin: 0; padding: 5px 0; }
+    .state-row { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(0, 1.3fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .state-row:last-child { border-bottom: 0; }
+    .state-key { color: var(--muted); font-size: 11px; }
+    .state-value { min-width: 0; font: 11px var(--mono); overflow-wrap: anywhere; }
+    .state-tag { color: var(--green); font: 9px var(--mono); text-transform: uppercase; }
+    .state-tag.warn { color: var(--amber); }
+    .state-tag.fail { color: var(--red); }
+    .deployment-band { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(120px, .55fr)); gap: 1px; margin-top: 14px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: var(--line); }
+    .deployment-cell { min-width: 0; padding: 13px 14px; background: var(--panel); }
+    .kicker { margin-bottom: 6px; color: var(--dim); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .mono { font-family: var(--mono); overflow-wrap: anywhere; }
+    .small { font-size: 10px; color: var(--muted); }
+    .workflow-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr); gap: 14px; }
+    .timeline { position: relative; padding: 7px 0; }
+    .stage { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; min-width: 0; padding: 11px 14px; }
+    .stage:not(:last-child)::before { content: ""; position: absolute; left: 28px; top: 35px; bottom: -10px; width: 1px; background: var(--line-strong); }
+    .stage-icon { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel-2); color: var(--green); font: 700 13px var(--mono); }
+    .stage-icon.fail { color: var(--red); border-color: #873f44; }
+    .stage-icon.wait { color: var(--dim); }
+    .stage-main { min-width: 0; padding-top: 1px; }
+    .stage-title { margin: 0; font-size: 12px; font-weight: 620; }
+    .stage-detail { margin: 4px 0 0; color: var(--muted); font: 10px var(--mono); overflow-wrap: anywhere; }
+    .stage-time { padding-top: 3px; color: var(--dim); font: 10px var(--mono); text-align: right; white-space: nowrap; }
+    .failure-box { margin: 3px 14px 10px 54px; padding: 11px 12px; border: 1px solid #71383e; border-left: 3px solid var(--red); background: #251417; border-radius: 3px; }
+    .failure-box strong { color: var(--red); font-size: 11px; }
+    .failure-box p { margin: 5px 0 0; color: #d7afb0; font-size: 11px; }
+    .context-list { margin: 0; }
+    .context-list div { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .context-list div:last-child { border-bottom: 0; }
+    .context-list dt { margin-bottom: 5px; color: var(--dim); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+    .context-list dd { margin: 0; font: 10px var(--mono); overflow-wrap: anywhere; }
+    .states-demo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .state-card { min-width: 0; padding: 13px; border: 1px dashed var(--line-strong); border-radius: 5px; background: #0c1318; }
+    .state-card h4 { margin: 0 0 5px; font-size: 11px; }
+    .state-card p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .skeleton { height: 7px; margin: 7px 0; border-radius: 4px; background: linear-gradient(90deg, #19262d, #263944, #19262d); background-size: 200% 100%; }
+    .skeleton.short { width: 56%; }
+    .artifact-footer { display: flex; justify-content: space-between; gap: 18px; padding: 14px 2px 0; color: var(--dim); font: 10px/1.5 var(--mono); }
+    .good { color: var(--green); }
+    .warning { color: var(--amber); }
+    .danger { color: var(--red); }
+    @media (max-width: 900px) {
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .overview-grid, .workflow-grid { grid-template-columns: minmax(0, 1fr); }
+      .health-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .deployment-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .shell { padding: 8px; }
+      .topbar { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+      .overall { justify-self: start; }
+      .nav { padding: 0 9px; }
+      .screen { padding: 14px; }
+      .screen-heading { align-items: start; flex-direction: column; }
+      .source-note { text-align: left; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric { padding: 11px; }
+      .metric-value { font-size: 19px; }
+      .health-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .device-grid, .states-demo { grid-template-columns: minmax(0, 1fr); }
+      .state-row { grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr); }
+      .state-tag { grid-column: 2; }
+      .deployment-band { grid-template-columns: minmax(0, 1fr); }
+      .stage { grid-template-columns: 30px minmax(0, 1fr); }
+      .stage-time { grid-column: 2; text-align: left; }
+      .failure-box { margin-left: 54px; }
+      .artifact-footer { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .screen.active { animation: reveal .16s ease-out; }
+      @keyframes reveal { from { opacity: .25; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <p class="fixture-note">Feature 006 planning artifact / illustrative values only</p>
+    <section class="app" aria-label="Network Automation Control Plane design mockup">
+      <header class="topbar">
+        <div class="brandline">
+          <h1 class="brand">Network Automation Lab</h1>
+          <span class="environment">Local lab</span>
+          <span class="observation">observed 14:32:18 UTC</span>
+        </div>
+        <div class="overall"><span class="status-mark" aria-hidden="true"></span> Healthy</div>
+      </header>
+      <nav class="nav" aria-label="Mockup screens">
+        <button type="button" data-screen="overview" aria-selected="true">Overview</button>
+        <button type="button" data-screen="device" aria-selected="false">Device detail</button>
+        <button type="button" data-screen="workflow" aria-selected="false">Workflow detail</button>
+      </nav>
+
+      <section id="overview" class="screen active" aria-labelledby="overview-title">
+        <div class="screen-heading">
+          <div><h2 id="overview-title">Overview</h2><p>Current automation state, recent outcomes, and small-lab topology.</p></div>
+          <div class="source-note">Sources: Nautobot + Temporal + native health probes</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">Devices</div><div class="metric-row"><span class="metric-value">2</span><span class="metric-note">Nautobot</span></div></div>
+          <div class="metric"><div class="metric-label">Active workflows</div><div class="metric-row"><span class="metric-value warning">1</span><span class="metric-note">Temporal</span></div></div>
+          <div class="metric"><div class="metric-label">Deployments passed</div><div class="metric-row"><span class="metric-value good">4</span><span class="metric-note">retained window</span></div></div>
+          <div class="metric"><div class="metric-label">Deployments failed</div><div class="metric-row"><span class="metric-value danger">1</span><span class="metric-note">retained window</span></div></div>
+        </div>
+        <div class="overview-grid">
+          <article class="panel">
+            <header class="panel-head"><h3 class="panel-title">Network topology</h3><span class="panel-meta">2 nodes / 1 logical link</span></header>
+            <div class="topology">
+              <svg viewBox="0 0 720 280" role="img" aria-labelledby="topology-title topology-desc">
+                <title id="topology-title">Two-node SR Linux lab topology</title>
+                <desc id="topology-desc">Spine and leaf nodes connected by a logical BGP intent link.</desc>
+                <defs>
+                  <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                </defs>
+                <g id="bgp-link" color="#55d6dc">
+                  <title>Logical BGP link supported by Nautobot neighbor and IP ownership</title>
+                  <path d="M274 140 H446" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="8 7"/>
+                  <rect x="323" y="126" width="74" height="27" rx="4" fill="#0e151b" stroke="#385160"/>
+                  <text x="360" y="143" text-anchor="middle" fill="#8da2ad" font-family="monospace" font-size="10">BGP INTENT</text>
+                </g>
+                <g id="spine-node" tabindex="0">
+                  <title>f004-spine01, healthy SR Linux spine</title>
+                  <rect x="46" y="82" width="228" height="116" rx="6" fill="#121c24" stroke="#55d6dc" stroke-width="2"/>
+                  <rect x="46" y="82" width="7" height="116" rx="4" fill="#55d6dc"/>
+                  <text x="70" y="111" fill="#8da2ad" font-family="sans-serif" font-size="10" letter-spacing="1.2">SPINE</text>
+                  <text x="70" y="140" fill="#e6eef2" font-family="monospace" font-size="17">f004-spine01</text>
+                  <text x="70" y="164" fill="#8da2ad" font-family="monospace" font-size="10">172.31.46.11 · SR Linux</text>
+                  <rect x="70" y="177" width="8" height="8" rx="2" fill="#71d99b"/>
+                  <text x="86" y="185" fill="#71d99b" font-family="monospace" font-size="10">VALIDATED</text>
+                </g>
+                <g id="leaf-node" tabindex="0">
+                  <title>f004-leaf01, healthy SR Linux leaf</title>
+                  <rect x="446" y="82" width="228" height="116" rx="6" fill="#121c24" stroke="#385160"/>
+                  <rect x="446" y="82" width="7" height="116" rx="4" fill="#7db4ee"/>
+                  <text x="470" y="111" fill="#8da2ad" font-family="sans-serif" font-size="10" letter-spacing="1.2">LEAF</text>
+                  <text x="470" y="140" fill="#e6eef2" font-family="monospace" font-size="17">f004-leaf01</text>
+                  <text x="470" y="164" fill="#8da2ad" font-family="monospace" font-size="10">172.31.46.12 · SR Linux</text>
+                  <rect x="470" y="177" width="8" height="8" rx="2" fill="#71d99b"/>
+                  <text x="486" y="185" fill="#71d99b" font-family="monospace" font-size="10">VALIDATED</text>
+                </g>
+              </svg>
+              <div class="topology-legend"><span><i class="legend-line"></i> Physical endpoint</span><span><i class="legend-line logical"></i> Logical BGP intent</span><span>Node state always includes text</span></div>
+            </div>
+          </article>
+          <article class="panel">
+            <header class="panel-head"><h3 class="panel-title">Recent activity</h3><span class="panel-meta">Temporal / newest first</span></header>
+            <ul class="activity">
+              <li><span class="status-mark round warning"></span><div class="activity-copy"><p class="activity-title">Deployment validating</p><p class="activity-detail">f004-leaf01 · attempt 2</p></div><time class="activity-time">14:32</time></li>
+              <li><span class="status-mark good"></span><div class="activity-copy"><p class="activity-title">Deployment completed</p><p class="activity-detail">f004-spine01 · validation passed</p></div><time class="activity-time">14:28</time></li>
+              <li><span class="status-mark fail danger"></span><div class="activity-copy"><p class="activity-title">Deployment failed</p><p class="activity-detail">f004-leaf01 · authentication</p></div><time class="activity-time">13:54</time></li>
+              <li><span class="status-mark good"></span><div class="activity-copy"><p class="activity-title">Artifact rendered</p><p class="activity-detail">f004-spine01 · 2.3 KiB</p></div><time class="activity-time">13:41</time></li>
+            </ul>
+          </article>
+        </div>
+        <div class="health-strip" aria-label="Dependency health">
+          <div class="health-cell"><div class="health-name"><span class="status-mark good"></span>Nautobot</div><div class="health-detail">healthy · 34 ms</div></div>
+          <div class="health-cell"><div class="health-name"><span class="status-mark good"></span>Kafka</div><div class="health-detail">healthy · 11 ms</div></div>
+          <div class="health-cell"><div class="health-name"><span class="status-mark good"></span>Temporal</div><div class="health-detail">healthy · 18 ms</div></div>
+          <div class="health-cell"><div class="health-name"><span class="status-mark good"></span>Worker</div><div class="health-detail">2 poller types</div></div>
+          <div class="health-cell"><div class="health-name"><span class="status-mark good"></span>Consumer</div><div class="health-detail">1 active member</div></div>
+          <div class="health-cell"><div class="health-name"><span class="status-mark warning round"></span>Live reads</div><div class="health-detail">available on detail</div></div>
+        </div>
+      </section>
+
+      <section id="device" class="screen" aria-labelledby="device-title">
+        <div class="breadcrumb">Devices / f004-leaf01</div>
+        <div class="screen-heading">
+          <div><h2 id="device-title" class="mono">f004-leaf01</h2><p>Leaf · Nokia SR Linux · Feature 004 Lab</p></div>
+          <div class="overall"><span class="status-mark"></span> Validated</div>
+        </div>
+        <div class="device-grid">
+          <article class="panel">
+            <header class="panel-head"><h3 class="panel-title">Intended state</h3><span class="panel-meta">Nautobot · 14:32:18</span></header>
+            <div class="state-list">
+              <div class="state-row"><span class="state-key">Hostname</span><span class="state-value">f004-leaf01</span><span class="state-tag">intended</span></div>
+              <div class="state-row"><span class="state-key">Loopback</span><span class="state-value">10.0.0.12/32</span><span class="state-tag">intended</span></div>
+              <div class="state-row"><span class="state-key">ethernet-1/1</span><span class="state-value">10.46.0.1/31</span><span class="state-tag">routed</span></div>
+              <div class="state-row"><span class="state-key">Local ASN</span><span class="state-value">65102</span><span class="state-tag">BGP</span></div>
+              <div class="state-row"><span class="state-key">Neighbor</span><span class="state-value">10.46.0.0 · AS 65101</span><span class="state-tag">BGP</span></div>
+            </div>
+          </article>
+          <article class="panel">
+            <header class="panel-head"><h3 class="panel-title">Live state</h3><span class="panel-meta">gNMI · 14:32:17</span></header>
+            <div class="state-list">
+              <div class="state-row"><span class="state-key">Hostname</span><span class="state-value">f004-leaf01</span><span class="state-tag">match</span></div>
+              <div class="state-row"><span class="state-key">Loopback</span><span class="state-value">up · 10.0.0.12/32</span><span class="state-tag">match</span></div>
+              <div class="state-row"><span class="state-key">ethernet-1/1</span><span class="state-value">up · 10.46.0.1/31</span><span class="state-tag">match</span></div>
+              <div class="state-row"><span class="state-key">Local ASN</span><span class="state-value">65102</span><span class="state-tag">match</span></div>
+              <div class="state-row"><span class="state-key">Neighbor</span><span class="state-value">established · AS 65101</span><span class="state-tag">match</span></div>
+            </div>
+          </article>
+        </div>
+        <section class="deployment-band" aria-label="Latest deployment summary">
+          <div class="deployment-cell"><div class="kicker">Latest deployment</div><div class="mono small">deploy-device-config:67bd4f…</div></div>
+          <div class="deployment-cell"><div class="kicker">Artifact</div><div class="mono small">f004-leaf01.cfg<br>sha256 1ad5…92bc</div></div>
+          <div class="deployment-cell"><div class="kicker">Completed</div><div class="mono small">14:28:44 UTC<br>8.4 seconds</div></div>
+          <div class="deployment-cell"><div class="kicker">Validation</div><div class="overall"><span class="status-mark"></span> Passed</div></div>
+        </section>
+        <div class="states-demo">
+          <article class="state-card"><h4>Partial source failure</h4><p>Live validation unavailable. Nautobot intent and retained deployment history remain visible.</p></article>
+          <article class="state-card"><h4>Existing mismatch</h4><p><span class="danger">Mismatch</span> appears only when Feature 004 validation has a failed check. No new drift engine.</p></article>
+          <article class="state-card"><h4>No artifact content</h4><p>Only relative path, digest, byte count, and file availability are exposed.</p></article>
+        </div>
+      </section>
+
+      <section id="workflow" class="screen" aria-labelledby="workflow-title">
+        <div class="breadcrumb">Workflows / deploy-device-config:67bd4f…</div>
+        <div class="screen-heading">
+          <div><h2 id="workflow-title">Deployment failed</h2><p class="mono">f004-leaf01 · deploy · terminal business outcome</p></div>
+          <div class="overall danger"><span class="status-mark fail"></span> Authentication failure</div>
+        </div>
+        <div class="workflow-grid">
+          <article class="panel">
+            <header class="panel-head"><h3 class="panel-title">Execution timeline</h3><span class="panel-meta">Temporal history · exact activity boundaries</span></header>
+            <div class="timeline">
+              <div class="stage"><span class="stage-icon">✓</span><div class="stage-main"><p class="stage-title">Workflow started</p><p class="stage-detail">Request input decoded · device and correlation available</p></div><div class="stage-time">14:31:02.018</div></div>
+              <div class="stage"><span class="stage-icon">✓</span><div class="stage-main"><p class="stage-title">Intent prepared and artifact written</p><p class="stage-detail">prepare_device_deployment · attempt 1</p></div><div class="stage-time">1.24 s</div></div>
+              <div class="stage"><span class="stage-icon fail">×</span><div class="stage-main"><p class="stage-title">gNMI deployment</p><p class="stage-detail">deploy_device_artifact · attempt 1</p></div><div class="stage-time">0.81 s</div></div>
+              <div class="failure-box"><strong>DEVICE_AUTHENTICATION_FAILED</strong><p>The device rejected the configured lab credentials. Raw exception and credentials are not available to the browser.</p></div>
+              <div class="stage"><span class="stage-icon wait">·</span><div class="stage-main"><p class="stage-title">Operational validation</p><p class="stage-detail">Not reached after terminal deployment failure</p></div><div class="stage-time">—</div></div>
+              <div class="stage"><span class="stage-icon">✓</span><div class="stage-main"><p class="stage-title">Result published</p><p class="stage-detail">publish_render_result · handled domain failure</p></div><div class="stage-time">0.06 s</div></div>
+            </div>
+          </article>
+          <aside class="panel">
+            <header class="panel-head"><h3 class="panel-title">Run context</h3><span class="panel-meta">safe fields</span></header>
+            <dl class="context-list">
+              <div><dt>Workflow</dt><dd>deploy-device-config:67bd4f6e-2d33-4ed1-8bc1-0123456789ab</dd></div>
+              <div><dt>Run</dt><dd>93186e15-b883-4dfa-b7b5-abcdef123456</dd></div>
+              <div><dt>Event</dt><dd>67bd4f6e-2d33-4ed1-8bc1-0123456789ab</dd></div>
+              <div><dt>Correlation</dt><dd>44ab6201-52ef-4ae7-9d34-fedcba987654</dd></div>
+              <div><dt>Device</dt><dd>f004-leaf01</dd></div>
+              <div><dt>Temporal state</dt><dd>COMPLETED <span class="warning">(business failure)</span></dd></div>
+              <div><dt>Duration</dt><dd>2.43 seconds</dd></div>
+              <div><dt>Artifact</dt><dd>configs/f004-leaf01.cfg · 2.3 KiB<br>sha256 1ad5…92bc</dd></div>
+            </dl>
+          </aside>
+        </div>
+        <div class="states-demo">
+          <article class="state-card"><h4>Loading</h4><div class="skeleton"></div><div class="skeleton short"></div><p>Shape-matched rows retain the page hierarchy.</p></article>
+          <article class="state-card"><h4>Empty history</h4><p>No admitted workflows were returned within Temporal's retained window.</p></article>
+          <article class="state-card"><h4>Unknown stage</h4><p>Unrecognized durable activity remains visible without exposing its payload or breaking the timeline.</p></article>
+        </div>
+      </section>
+    </section>
+    <footer class="artifact-footer">
+      <span>Design source: user-directed operator control plane · custom portable CSS</span>
+      <span>No backend architecture, metrics, or product controls are created by this mockup.</span>
+    </footer>
+  </main>
+  <script>
+    const buttons = [...document.querySelectorAll('[data-screen]')];
+    const screens = [...document.querySelectorAll('.screen')];
+    for (const button of buttons) {
+      button.addEventListener('click', () => {
+        for (const item of buttons) item.setAttribute('aria-selected', String(item === button));
+        for (const screen of screens) screen.classList.toggle('active', screen.id === button.dataset.screen);
+      });
+    }
+  </script>
+</body>
+</html>
