@@ -28,6 +28,9 @@ network-event-consumer = "network_automation.events.consumer:main"
 network-ui-api = "network_automation.api.app:main"
 
 [dependency-groups]
+ai-dev = [
+  "graphifyy[mcp]>=0.9.64,<1",
+]
 dev = [
   "pytest>=8.4,<9",
   "pytest-asyncio>=1.1,<2",

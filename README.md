@@ -106,6 +106,23 @@ uv run pytest tests/integration/test_srlinux_deployment.py
 Default pytest discovery runs unit tests only and requires no Docker services.
 Integration tests are explicit and fail when infrastructure is unavailable.
 
+### AI Development Tooling
+
+Graphify is optional repository-discovery tooling and is isolated from application/runtime
+dependencies in the `ai-dev` group. Install or run it explicitly:
+
+```sh
+uv sync --locked --group ai-dev
+uv run --group ai-dev graphify extract . --code-only
+uv run --group ai-dev graphify update .
+uv run --group ai-dev graphify query "How does a render request reach Temporal?"
+```
+
+The repo-local OpenCode MCP configuration starts `graphify-mcp` through this group and reads
+`graphify-out/graph.json`. Run the code-only extraction once on a clean checkout; later updates
+are incremental. Generated graph data remains ignored and repo-local and is not imported by
+product code.
+
 ## Observe The Control Plane
 
 The operator console is absent from default startup. After the base services are running,
