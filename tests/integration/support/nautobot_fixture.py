@@ -15,7 +15,7 @@ class FixtureApi:
         self.client = httpx.Client(
             headers={
                 "Authorization": f"Token {settings.nautobot_token.get_secret_value()}",
-                "Accept": "application/json",
+                "Accept": "application/json; version=3.2",
             },
             timeout=settings.probe_timeout_seconds,
         )

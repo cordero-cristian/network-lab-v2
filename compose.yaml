@@ -188,7 +188,7 @@ services:
     restart: unless-stopped
 
   nautobot-init:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     user: root
     environment: *nautobot-environment
     entrypoint: ["/bin/bash", "-ec"]
@@ -209,7 +209,7 @@ services:
     restart: "no"
 
   nautobot:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     ports:
       - "127.0.0.1:${LAB_NAUTOBOT_HOST_PORT:-8000}:8080"
@@ -227,7 +227,7 @@ services:
     restart: unless-stopped
 
   nautobot-worker:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     command: ["nautobot-server", "celery", "worker", "--loglevel", "INFO", "--hostname", "celery@nautobot-worker"]
     volumes:
@@ -244,7 +244,7 @@ services:
     restart: unless-stopped
 
   nautobot-scheduler:
-    image: networktocode/nautobot:2.4.41-py3.12
+    image: networktocode/nautobot:3.2.5-py3.12
     environment: *nautobot-environment
     command: ["nautobot-server", "celery", "beat", "--loglevel", "INFO", "--pidfile", "/tmp/nautobot-celery-beat.pid"]
     depends_on:

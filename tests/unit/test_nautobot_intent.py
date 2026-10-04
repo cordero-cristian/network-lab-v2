@@ -8,6 +8,7 @@ import pytest
 from network_automation.intent.nautobot import (
     NautobotClient,
     NautobotError,
+    NautobotInventoryDevice,
     device_intent_from_nautobot,
 )
 from network_automation.rendering.srlinux import render_srlinux
@@ -171,6 +172,7 @@ def test_client_reads_platform_pagination_and_related_addresses() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
+        assert request.headers["Accept"] == "application/json; version=3.2"
         path = request.url.path
         if path == "/api/dcim/devices/":
             return httpx.Response(200, json={"results": [{
@@ -208,6 +210,82 @@ def test_client_reads_platform_pagination_and_related_addresses() -> None:
     assert len(raw["interfaces"]) == 1  # type: ignore[arg-type]
     assert raw["interfaces"][0]["type"] == "virtual"  # type: ignore[index]
     assert any("offset=1" in call for call in calls)
+    interface_call = next(call for call in calls if "/api/dcim/interfaces/" in call)
+    assert "device_id=device-id" in interface_call
+    assert "exclude_m2m=false" in interface_call
+
+
+def test_inventory_normalizes_nautobot_3_brief_related_objects() -> None:
+    def brief(display: str) -> dict[str, str]:
+        return {
+            "id": f"{display.casefold()}-id",
+            "object_type": "extras.role",
+            "url": f"http://nautobot.test/api/objects/{display.casefold()}-id/",
+            "display": display,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Accept"] == "application/json; version=3.2"
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "id": "device-id",
+                        "name": "leaf01",
+                        "role": brief("Leaf"),
+                        "platform": brief("Nokia SR Linux"),
+                        "location": brief("Lab"),
+                        "status": brief("Active"),
+                        "primary_ip4": None,
+                        "local_config_context_data": {
+                            "network_automation": {"bgp": {"neighbors": []}}
+                        },
+                    }
+                ]
+            },
+        )
+
+    with NautobotClient(
+        "http://nautobot.test", "secret", transport=httpx.MockTransport(handler)
+    ) as client:
+        devices = client.list_inventory_devices()
+
+    assert len(devices) == 1
+    assert devices[0].role == "Leaf"
+    assert devices[0].platform == "Nokia SR Linux"
+    assert devices[0].location == "Lab"
+    assert devices[0].status == "Active"
+
+
+def test_topology_interface_read_explicitly_includes_m2m_addresses() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"results": []})
+
+    with NautobotClient(
+        "http://nautobot.test", "secret", transport=httpx.MockTransport(handler)
+    ) as client:
+        client.list_topology_interfaces(
+            [
+                NautobotInventoryDevice(
+                    id="device-id",
+                    name="leaf01",
+                    role=None,
+                    platform=None,
+                    location=None,
+                    management_address=None,
+                    status=None,
+                )
+            ]
+        )
+
+    assert len(calls) == 1
+    assert calls[0].url.params["device_id"] == "device-id"
+    assert calls[0].url.params["exclude_m2m"] == "false"
+    assert calls[0].url.params["depth"] == "1"
 
 
 @pytest.mark.parametrize("count", [0, 2])

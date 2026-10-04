@@ -15,7 +15,7 @@ retry, cancel, publish, or mutate automation state.
 
 | Service | Local endpoint | Persistence |
 |---|---|---|
-| Nautobot 2.4.41 | `http://localhost:8000` | PostgreSQL and `nautobot-media` |
+| Nautobot 3.2.5 | `http://localhost:8000` | PostgreSQL and `nautobot-media` |
 | Kafka 4.1.2 (single-node KRaft) | `localhost:9092` | `kafka-data` |
 | Temporal 1.31.0 | `localhost:7233` | PostgreSQL |
 | Temporal UI 2.49.1 | `http://localhost:8080` | None |
@@ -185,6 +185,10 @@ non-management `virtual` `/32` becomes SR Linux `system0`, while addressed physi
 interfaces retain their names. BGP input is currently limited to
 `local_config_context_data.network_automation.bgp`.
 
+Nautobot REST clients explicitly request API version 3.2. Interface reads that consume
+`ip_addresses` also request `exclude_m2m=false`, because Nautobot 3 excludes most
+many-to-many fields by default.
+
 Generated configuration contains hostname, loopback and routed interface state and
 IPv4 addressing, default network-instance attachments, and BGP ASN/router-ID/peers.
 It contains no credentials or operational data. Rendering never contacts a network
@@ -280,6 +284,11 @@ gNMI reachability before retrying. Remove the override worker before topology cl
 delete Compose volumes or shared topics as part of device cleanup.
 
 ## Operations
+
+For a retained Nautobot 2.4.41 database, follow
+[`docs/nautobot-migration.md`](docs/nautobot-migration.md) before starting this version.
+Rollback requires both the old image pins and restoration of the matching PostgreSQL
+and `nautobot-media` backups; changing images alone is not rollback.
 
 ```sh
 docker compose ps --all

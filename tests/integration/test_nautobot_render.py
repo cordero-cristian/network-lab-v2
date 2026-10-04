@@ -134,7 +134,25 @@ def test_real_nautobot_intent_to_unique_artifact(tmp_path: Path) -> None:
 
         assert intent.name == device_name
         assert intent.platform == "nokia_srl"
+        assert intent.platform_display == marker
+        assert intent.role == marker
+        assert intent.location == marker
         assert not hasattr(intent.loopback, "name")
+        assert str(intent.loopback.ipv4) == "10.0.0.1/32"
+        assert [interface.name for interface in intent.interfaces] == [
+            "ethernet-1/1",
+            "ethernet-1/2",
+        ]
+        assert [str(interface.ipv4) for interface in intent.interfaces] == [
+            "192.0.2.0/31",
+            "192.0.2.2/31",
+        ]
+        assert intent.bgp.local_asn == 65001
+        assert [str(neighbor.address) for neighbor in intent.bgp.neighbors] == [
+            "192.0.2.1",
+            "192.0.2.3",
+        ]
+        assert [neighbor.remote_asn for neighbor in intent.bgp.neighbors] == [65100, 65200]
         assert first == second == artifact.read_text()
         assert artifact == tmp_path / f"{device_name}.cfg"
         assert first.startswith(f"set / system name host-name {device_name}\n")

@@ -170,7 +170,10 @@ def test_disposable_lifecycle_retains_state_and_reports_dependency_failure(
             broker.port == settings.kafka_host_port for broker in metadata.brokers.values()
         )
 
-        headers = {"Authorization": f"Token {settings.nautobot_token.get_secret_value()}"}
+        headers = {
+            "Authorization": f"Token {settings.nautobot_token.get_secret_value()}",
+            "Accept": "application/json; version=3.2",
+        }
         response = httpx.post(
             f"{str(settings.nautobot_url).rstrip('/')}/api/extras/tags/",
             headers=headers,

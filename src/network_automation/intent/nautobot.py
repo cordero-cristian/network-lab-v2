@@ -19,6 +19,7 @@ from network_automation.intent.models import (
 )
 
 NON_PHYSICAL_TYPES = {"virtual", "lag", "bridge", "other"}
+NAUTOBOT_API_ACCEPT = "application/json; version=3.2"
 
 
 class NautobotError(RuntimeError):
@@ -69,7 +70,10 @@ class NautobotClient:
         self._base_url = base_url.rstrip("/") + "/"
         self._origin = urlsplit(self._base_url)[:2]
         self._client = httpx.Client(
-            headers={"Authorization": f"Token {token}", "Accept": "application/json"},
+            headers={
+                "Authorization": f"Token {token}",
+                "Accept": NAUTOBOT_API_ACCEPT,
+            },
             timeout=timeout,
             transport=transport,
         )
@@ -130,7 +134,10 @@ class NautobotClient:
         device_id = _required_text(device.get("id"), "device id")
         interfaces: list[dict[str, object]] = []
         next_url: str | None = "api/dcim/interfaces/"
-        params: Mapping[str, object] | None = {"device_id": device_id}
+        params: Mapping[str, object] | None = {
+            "device_id": device_id,
+            "exclude_m2m": "false",
+        }
         while next_url is not None:
             page = self._get(next_url, params=params)
             params = None
@@ -238,7 +245,12 @@ class NautobotClient:
         for device in devices:
             page = self._get(
                 "api/dcim/interfaces/",
-                params={"device_id": device.id, "limit": 100, "depth": 1},
+                params={
+                    "device_id": device.id,
+                    "limit": 100,
+                    "depth": 1,
+                    "exclude_m2m": "false",
+                },
             )
             values = page.get("results")
             if not isinstance(values, list):

@@ -24,6 +24,12 @@ FEATURE_001_SERVICES = {
 }
 AUTOMATION_SERVICES = {"automation-worker", "event-consumer"}
 UI_SERVICES = {"automation-ui-api", "automation-ui"}
+NAUTOBOT_SERVICES = {
+    "nautobot-init",
+    "nautobot",
+    "nautobot-worker",
+    "nautobot-scheduler",
+}
 TEST_ENVIRONMENT = {
     "COMPOSE_PROJECT_NAME": "network-lab-static-test",
     "KAFKA_CLUSTER_ID": "MkU3OEVBNTcwNTJENDM2Qk",
@@ -120,6 +126,21 @@ def test_automation_services_share_one_pinned_application_build(
     assert any("3.12.13" in line for line in from_lines)
     assert "0.11.28" in dockerfile
     assert all(":latest" not in line for line in from_lines)
+
+
+def test_all_nautobot_services_use_the_3_2_5_python_3_12_image(
+    compose_config: dict[str, Any],
+) -> None:
+    services = compose_config["services"]
+
+    assert {
+        name: services[name]["image"] for name in NAUTOBOT_SERVICES
+    } == {
+        name: "networktocode/nautobot:3.2.5-py3.12"
+        for name in NAUTOBOT_SERVICES
+    }
+    assert services["postgres"]["image"] == "postgres:16.15-bookworm"
+    assert services["redis"]["image"] == "redis:7.2.16-bookworm"
 
 
 def test_ui_services_have_exactly_one_ui_build_owner(

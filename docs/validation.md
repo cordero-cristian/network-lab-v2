@@ -879,3 +879,62 @@ history, unrelated Nautobot object, supporting service, or Feature 005 state was
 `network-lab-check` passed; librdkafka first attempted unavailable IPv6 localhost and then confirmed
 broker metadata over the configured IPv4 listener. The six owner-accepted wording risks above remain
 unchanged and are not implementation or acceptance gaps.
+
+## Nautobot 3.2.5 Migration Acceptance (2026-09-22)
+
+The canonical Ubuntu 24.04.4 x86-64 host migrated directly from Nautobot 2.4.41 to
+3.2.5. Nautobot's v3.2.5 upgrade guides recommend separating production steps,
+require at least 2.4.15 for the v3 job-approval pre-check, and require a database
+backup. They do not require a 2.4.42 intermediate migration from 2.4.41. The v2.4.42
+release contains security and interface-query performance fixes but no prerequisite
+schema migration, so no intermediate image was used.
+
+Before migration, PostgreSQL and `nautobot-media` were backed up and checksummed under
+`/root/network-lab-v2-migration-backup-20260922`, together with the 2.4.41 version,
+all four Nautobot image records, and the complete applied Django migration list. A
+normal reciprocal cable was created between two pre-upgrade devices, Nautobot writers
+were stopped, and a fresh PostgreSQL custom-format dump and matching media archive were
+taken. Rollback evidence therefore contains the old image pins and matching database
+and media state rather than relying on an image-only downgrade.
+
+The backups were first restored into the disposable `network-lab-migration-trial`
+Compose project. The initial restore correctly exposed that `pg_restore --no-owner`
+had assigned restored objects to `postgres`; the trial was recreated with database
+owner/restore role `nautobot` before migration. This was a restore-command correction,
+not a Nautobot migration failure. The 3.2.5 `nautobot-server post_upgrade` then applied
+the cable termination/path migrations, completed all remaining migrations, and exited
+zero. Trial PostgreSQL 16.15, Redis 7.2.16, web, worker, and scheduler were healthy.
+Migration identity/version/cable and real Feature 002 fixture tests passed 3/3 before
+the disposable project and its volumes were removed.
+
+| Canonical command or observation | Result |
+| --- | --- |
+| Four Nautobot service images | `networktocode/nautobot:3.2.5-py3.12`; local image ID `sha256:b11fec9004125ea4556c025016fc2e7335b43b628acb9e82bff8b209f0fb38db` |
+| Retained `nautobot-init` / `post_upgrade` | Exit 0; cable migrations `dcim.0088` through `dcim.0096` applied |
+| Retained web, worker, scheduler | All healthy |
+| Authenticated `/api/status/` | Nautobot `3.2.5`, response `API-Version: 3.2` |
+| Bootstrap identity and depth | Canonical API user remained a superuser; depth-1 role/platform/status relations remained visible |
+| Retained cable/path | Reciprocal connected endpoints remained present and Feature 006 emitted the physical link |
+| Retained migration acceptance | 4 passed in 21.60s |
+| Feature 002 full normalized intent | 1 passed in 12.85s; fixture creation, artifact generation, and cleanup passed |
+| Feature 003 bounded event render | 1 passed in 115.51s |
+| Feature 004 bounded success smoke | 2 passed in 86.63s; both nodes reachable, deployment and native validation passed, BGP Established |
+| Feature 006 populated API acceptance | 2 passed in 25.00s; 2 devices, 2 links, 10 workflows, 6 deployments, artifact metadata, and useful live interface/BGP state |
+| Local focused migration tests | 84 passed in 3.20s |
+| Local full Python suite | 394 passed in 10.90s; prior baseline was 391 |
+| `uv lock --check` | Passed |
+| Final `network-lab-check` | Passed every supporting service, initializer, authenticated API, Kafka, Temporal RPC/namespace, and UI boundary |
+| `git diff --check` | Passed |
+
+The Feature 004 recovery/convergence tests were intentionally not run. No Nautobot
+`ReadTimeout` occurred, so the known transient timeout defect was neither changed nor
+investigated. Feature 006 live state was healthy and useful; the retained migration
+fixture showed one expected hostname mismatch after its devices were renamed to leave
+the fixed Feature 004 acceptance names available. This did not affect interface,
+address, BGP, topology, workflow, deployment, or artifact observations.
+
+Cleanup removed the disposable migration project and volumes, the SR Linux containers,
+and `network-lab-devices-mgmt`. The optional UI/API were stopped, and the base automation
+worker was restored without device credentials. The retained reciprocal cable and two
+Nautobot devices remain as migrated data. Supporting services, including Nautobot
+3.2.5, were left running and healthy for inspection; no commit or push was made.

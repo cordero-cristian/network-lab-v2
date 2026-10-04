@@ -31,11 +31,15 @@ def test_aggregate_application_readiness(settings: LabSettings) -> None:
 def test_authenticated_nautobot_api(settings: LabSettings) -> None:
     response = httpx.get(
         f"{str(settings.nautobot_url).rstrip('/')}/api/status/",
-        headers={"Authorization": f"Token {settings.nautobot_token.get_secret_value()}"},
+        headers={
+            "Authorization": f"Token {settings.nautobot_token.get_secret_value()}",
+            "Accept": "application/json; version=3.2",
+        },
         timeout=settings.probe_timeout_seconds,
     )
     response.raise_for_status()
-    assert response.json()["nautobot-version"].startswith("2.4.")
+    assert response.headers["API-Version"] == "3.2"
+    assert response.json()["nautobot-version"] == "3.2.5"
 
 
 def test_kafka_host_round_trip_and_advertised_metadata(settings: LabSettings) -> None:
